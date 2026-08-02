@@ -1,0 +1,22 @@
+{
+  "name": "Teleprompter",
+  "short_name": "Prompter",
+  "description": "Teleprompter offline com controle por pedal Bluetooth e comando de voz.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "id": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "./icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "./icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+    { "src": "./icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "./icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}

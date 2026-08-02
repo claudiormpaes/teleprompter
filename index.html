@@ -1,0 +1,182 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="description" content="Teleprompter offline para gravacao de video, com controle por pedal Bluetooth e comando de voz.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>Teleprompter</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="stylesheet" href="./styles.css">
+
+<!-- Icones SVG reutilizaveis, sem emoji e sem dependencia externa -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M6.5 4.5h4v15h-4zM13.5 4.5h4v15h-4z"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8zm0 5.2a1.8 1.8 0 1 1 0-3.6 1.8 1.8 0 0 1 0 3.6z"/><path d="M20.3 13.1c.05-.36.08-.73.08-1.1s-.03-.74-.08-1.1l2-1.5-1.9-3.3-2.35.95c-.57-.46-1.2-.83-1.88-1.1L15.8 2.5h-3.8l-.37 2.45c-.69.27-1.32.64-1.88 1.1L7.4 5.1 5.5 8.4l2 1.5c-.05.36-.08.73-.08 1.1s.03.74.08 1.1l-2 1.5 1.9 3.3 2.35-.95c.57.46 1.2.83 1.88 1.1l.37 2.45h3.8l.37-2.45c.69-.27 1.32-.64 1.88-1.1l2.35.95 1.9-3.3zM12 17.9A5.9 5.9 0 1 1 12 6.1a5.9 5.9 0 0 1 0 11.8z" opacity=".9"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 14.5a3 3 0 0 0 3-3v-6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M18 11.2h-1.6a4.4 4.4 0 0 1-8.8 0H6a6 6 0 0 0 5.2 5.94V20h1.6v-2.86A6 6 0 0 0 18 11.2z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 11h14v2H5z"/></symbol>
+  <symbol id="i-top" viewBox="0 0 24 24"><path d="M5 4h14v2H5zM12 8l6.5 7h-4v5h-5v-5h-4z"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M18.3 7.1 16.9 5.7 12 10.6 7.1 5.7 5.7 7.1l4.9 4.9-4.9 4.9 1.4 1.4 4.9-4.9 4.9 4.9 1.4-1.4-4.9-4.9z"/></symbol>
+  <symbol id="i-pedal" viewBox="0 0 24 24"><path d="M4 7h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm2 2.6v2.8h12V9.6z"/><path d="M7 16h10v2H7z" opacity=".65"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zm7 1.5V8h3.5z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><path d="M9 2h9v14H9zM4 6h3v12h9v3H4z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M6 7h12l-1 14H7zM9 4h6l1 2H8z"/></symbol>
+</svg>
+
+<div id="app">
+
+  <!-- ================= BIBLIOTECA ================= -->
+  <section class="view is-active" id="view-library">
+    <header class="topbar">
+      <h1 class="brand">Teleprompter</h1>
+      <div class="topbar-actions">
+        <button class="btn icon" id="btn-open-pedal" title="Pedal" aria-label="Pedal"><svg class="ic"><use href="#i-pedal"></use></svg></button>
+        <button class="btn icon" id="btn-open-settings" title="Ajustes" aria-label="Ajustes"><svg class="ic"><use href="#i-gear"></use></svg></button>
+      </div>
+    </header>
+    <div class="scrollarea">
+      <button class="btn primary block" id="btn-new">
+        <svg class="ic"><use href="#i-plus"></use></svg><span>Novo roteiro</span>
+      </button>
+      <ul class="list" id="script-list"></ul>
+      <p class="hint" id="library-empty" hidden>Nenhum roteiro ainda. Toque em Novo roteiro para comecar.</p>
+      <p class="hint">Os roteiros ficam salvos apenas neste aparelho, no armazenamento do navegador.</p>
+    </div>
+  </section>
+
+  <!-- ================= EDITOR ================= -->
+  <section class="view" id="view-editor">
+    <header class="topbar">
+      <button class="btn icon" id="btn-editor-back" title="Voltar" aria-label="Voltar"><svg class="ic"><use href="#i-back"></use></svg></button>
+      <input class="title-input" id="editor-title" type="text" placeholder="Titulo do roteiro" autocomplete="off">
+      <div class="topbar-actions">
+        <button class="btn icon" id="btn-duplicate" title="Duplicar" aria-label="Duplicar"><svg class="ic"><use href="#i-copy"></use></svg></button>
+        <button class="btn icon danger" id="btn-delete" title="Apagar" aria-label="Apagar"><svg class="ic"><use href="#i-trash"></use></svg></button>
+      </div>
+    </header>
+    <div class="editor-wrap">
+      <textarea id="editor-text" spellcheck="true" placeholder="Escreva ou cole o texto aqui."></textarea>
+    </div>
+    <footer class="bottombar">
+      <span class="save-state" id="save-state">Salvo</span>
+      <button class="btn primary grow" id="btn-present">
+        <svg class="ic"><use href="#i-play"></use></svg><span>Apresentar</span>
+      </button>
+    </footer>
+  </section>
+
+  <!-- ================= PROMPTER ================= -->
+  <section class="view" id="view-prompter">
+    <div class="stage" id="stage">
+      <div class="scroller" id="scroller"></div>
+    </div>
+    <div class="guide" id="guide" aria-hidden="true">
+      <svg viewBox="0 0 24 24" class="guide-arrow"><path d="M4 12l8-6v4h8v4h-8v4z"/></svg>
+      <span class="guide-line"></span>
+      <svg viewBox="0 0 24 24" class="guide-arrow flip"><path d="M4 12l8-6v4h8v4h-8v4z"/></svg>
+    </div>
+    <div class="progress"><i id="progress-bar"></i></div>
+    <div class="countdown" id="countdown" hidden><span id="countdown-num">3</span></div>
+    <div class="voice-flag" id="voice-flag" hidden>Voz ativa</div>
+    <div class="prompter-controls" id="prompter-controls">
+      <button class="btn icon" id="pc-exit" title="Sair" aria-label="Sair"><svg class="ic"><use href="#i-close"></use></svg></button>
+      <button class="btn icon" id="pc-top" title="Voltar ao inicio" aria-label="Voltar ao inicio"><svg class="ic"><use href="#i-top"></use></svg></button>
+      <button class="btn icon" id="pc-slower" title="Mais devagar" aria-label="Mais devagar"><svg class="ic"><use href="#i-minus"></use></svg></button>
+      <button class="btn icon big" id="pc-play" title="Iniciar ou pausar" aria-label="Iniciar ou pausar"><svg class="ic"><use href="#i-play"></use></svg></button>
+      <button class="btn icon" id="pc-faster" title="Mais rapido" aria-label="Mais rapido"><svg class="ic"><use href="#i-plus"></use></svg></button>
+      <button class="btn icon" id="pc-mic" title="Comando de voz" aria-label="Comando de voz"><svg class="ic"><use href="#i-mic"></use></svg></button>
+      <button class="btn icon" id="pc-settings" title="Ajustes" aria-label="Ajustes"><svg class="ic"><use href="#i-gear"></use></svg></button>
+      <span class="speed-tag" id="speed-tag">60 px/s</span>
+    </div>
+  </section>
+
+  <!-- ================= PEDAL ================= -->
+  <section class="view" id="view-pedal">
+    <header class="topbar">
+      <button class="btn icon" id="btn-pedal-back" title="Voltar" aria-label="Voltar"><svg class="ic"><use href="#i-back"></use></svg></button>
+      <h1 class="brand">Pedal e teclado</h1>
+    </header>
+    <div class="scrollarea">
+      <p class="hint">Pise no pedal para ver o que ele envia. O M-VAVE Cube Turner muda de modo: pode mandar PageUp e PageDown, setas, espaco ou enter, e tambem pode trabalhar em modo de toque, simulando rolagem ou deslize na tela. Os tres casos aparecem aqui. Se a lista ficar vazia, toque uma vez nesta tela para dar foco ao aplicativo e confira o pareamento Bluetooth.</p>
+
+      <h2 class="section-title">Monitor ao vivo</h2>
+      <div class="monitor" id="key-monitor"><p class="hint">Aguardando teclas e gestos.</p></div>
+      <button class="btn block" id="btn-clear-monitor">Limpar monitor</button>
+
+      <h2 class="section-title">Remapear acoes</h2>
+      <p class="hint">Cada acao aceita varios comandos, de tecla ou de gesto. Toque em Definir comando e acione o pedal para adicionar.</p>
+      <div id="mapping-list"></div>
+      <button class="btn block" id="btn-reset-keys">Restaurar padrao</button>
+    </div>
+    <div class="capture-overlay" id="capture-overlay" hidden>
+      <div class="capture-box">
+        <p class="capture-title">Acione o pedal, pressione a tecla ou faca o gesto</p>
+        <p class="hint" id="capture-action"></p>
+        <button class="btn" id="btn-capture-cancel">Cancelar</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= AJUSTES (sobreposicao) ================= -->
+  <div class="panel" id="panel-settings" hidden>
+    <div class="panel-sheet" role="dialog" aria-label="Ajustes">
+      <header class="panel-head">
+        <h2>Ajustes</h2>
+        <button class="btn icon" id="btn-settings-close" title="Fechar" aria-label="Fechar"><svg class="ic"><use href="#i-close"></use></svg></button>
+      </header>
+      <div class="panel-body">
+        <label class="row"><span>Velocidade <b id="v-speed"></b></span>
+          <input type="range" id="s-speed" min="10" max="300" step="5"></label>
+        <label class="row"><span>Tamanho da fonte <b id="v-font"></b></span>
+          <input type="range" id="s-font" min="24" max="120" step="1"></label>
+        <label class="row"><span>Altura de linha <b id="v-line"></b></span>
+          <input type="range" id="s-line" min="100" max="220" step="5"></label>
+        <label class="row"><span>Margem lateral <b id="v-margin"></b></span>
+          <input type="range" id="s-margin" min="0" max="30" step="1"></label>
+        <label class="row"><span>Salto de avanco e retorno <b id="v-jump"></b></span>
+          <input type="range" id="s-jump" min="50" max="800" step="25"></label>
+
+        <div class="row-split">
+          <span>Cor do texto</span>
+          <div class="chips" id="s-color">
+            <button class="chip" data-color="#ffffff">Branco</button>
+            <button class="chip" data-color="#ffd44d">Amarelo</button>
+            <button class="chip" data-color="#7ef29a">Verde</button>
+          </div>
+        </div>
+
+        <div class="row-split">
+          <span>Contagem regressiva</span>
+          <div class="chips" id="s-countdown">
+            <button class="chip" data-cd="0">Sem</button>
+            <button class="chip" data-cd="3">3 s</button>
+            <button class="chip" data-cd="5">5 s</button>
+          </div>
+        </div>
+
+        <label class="switch"><span>Espelhar na horizontal (espelho do Parrot)</span><input type="checkbox" id="s-mirror-h"></label>
+        <label class="switch"><span>Espelhar na vertical</span><input type="checkbox" id="s-mirror-v"></label>
+        <label class="switch"><span>Guia de leitura</span><input type="checkbox" id="s-guide"></label>
+        <label class="switch"><span>Manter a tela acesa</span><input type="checkbox" id="s-wake"></label>
+        <label class="switch"><span>Tela cheia ao apresentar</span><input type="checkbox" id="s-fullscreen"></label>
+
+        <h3 class="section-title">Comando de voz</h3>
+        <p class="hint" id="voice-support"></p>
+        <p class="hint">Comandos: iniciar, comecar, vai, pausar, parar, pera, mais rapido, acelera, mais devagar, devagar, voltar, do inicio, recomecar. Fale a frase sozinha, sem emendar no texto do roteiro.</p>
+
+        <button class="btn block" id="btn-settings-pedal">
+          <svg class="ic"><use href="#i-pedal"></use></svg><span>Configurar pedal</span>
+        </button>
+        <p class="hint" id="app-version"></p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="./app.js"></script>
