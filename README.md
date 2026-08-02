@@ -78,6 +78,19 @@ devagar, devagar, voltar, do inicio, recomecar.
 Para o texto do roteiro nao virar comando sem querer, so entram resultados finais e frases
 curtas, de ate quatro palavras, ditas isoladamente.
 
+No Chrome do Android a sessao de reconhecimento morre sozinha com frequencia, com erro `aborted`
+ou `no-speech`, as vezes em poucos segundos. Enquanto o microfone estiver ligado e o prompter
+aberto, o app religa sozinho: 0,35 s depois da queda, ou 2 s se a sessao anterior tambem tiver
+durado menos de 1 s, para nao entrar em laco. So a negativa de permissao encerra de vez, e ai o
+aviso na tela muda para "Voz bloqueada".
+
+## Comportamento como aplicativo instalado
+
+Instalado na tela inicial, o app ja abre em tela cheia. Nesse modo o Android recusa o pedido
+explicito de tela cheia, e o app nem pede: detecta o `display-mode` e segue em frente. O mesmo
+vale para manter a tela acesa, que depende de permissao e de bateria. Nenhum desses recursos e
+pre requisito: se falharem, rolagem, contagem regressiva, pedal e voz continuam funcionando.
+
 ## Atualizar a versao publicada
 
 O service worker serve do cache. Ao alterar qualquer arquivo, mude `const V = 'v1'` em `sw.js`

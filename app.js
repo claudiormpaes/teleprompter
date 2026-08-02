@@ -4,7 +4,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v1';
+  var APP_VERSION = 'v2';
   var K_SCRIPTS = 'tp.scripts';
   var K_SETTINGS = 'tp.settings';
   var K_KEYS = 'tp.keys';
@@ -115,6 +115,19 @@
   function findScript(id) {
     for (var i = 0; i < scripts.length; i++) if (scripts[i].id === id) return scripts[i];
     return null;
+  }
+  function mostRecentScript() {
+    var best = null;
+    for (var i = 0; i < scripts.length; i++) if (!best || scripts[i].updated > best.updated) best = scripts[i];
+    return best;
+  }
+  // executa um passo que pode falhar no aparelho sem derrubar o resto do fluxo
+  function safe(fn) {
+    try {
+      var r = fn();
+      if (r && typeof r.catch === 'function') r.catch(function () { });
+      return r;
+    } catch (e) { return null; }
   }
   function newId() { return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
   function fmtDate(ts) {
@@ -247,38 +260,54 @@
     playing: false,
     maxOffset: 1,
     wakeLock: null,
-    cdTimer: 0,
-    active: false,
+    pendingPlay: false,
+    playAt: 0,
+    cdShown: -1,
+
+    /* Fonte unica de verdade: o prompter esta aberto se a view esta na tela.
+       Nao existe mais um booleano paralelo que possa dessincronizar e desligar
+       teclado, gestos e voz em silencio. */
+    isOpen: function () { return VIEWS.prompter.classList.contains('is-active'); },
 
     open: function (id) {
-      var s = findScript(id);
-      if (!s) return;
-      Prompter.id = id;
+      var s = findScript(id) || mostRecentScript();
+      if (!s) { Editor.create(); return; }          // biblioteca vazia: leva para o editor
+      Prompter.id = s.id;
       $('#scroller').textContent = (s.text || '').length ? s.text : 'Roteiro vazio. Volte e escreva o texto.';
       Prompter.offset = 0;
       Prompter.cur = 0;
       Prompter.playing = false;
-      Prompter.active = true;
+
+      // 1) primeiro o essencial, na ordem em que depende do layout
       show('prompter');
-      Settings.applyToPrompter();
+      safe(Settings.applyToPrompter);
+      Prompter.measure();
       Prompter.paint();
-      requestAnimationFrame(function () { Prompter.measure(); Prompter.paint(); });
       Prompter.updatePlayIcon();
-      Prompter.requestFullscreen();
-      Prompter.requestWakeLock();
       Prompter.startLoop();
       Prompter.countdownThenPlay();
+      // segunda medicao depois do primeiro quadro, quando a view ja tem altura real
+      requestAnimationFrame(function () {
+        if (!Prompter.isOpen()) return;
+        Prompter.measure();
+        Prompter.paint();
+      });
+
+      // 2) so entao o que pode falhar no aparelho (TWA, permissao, navegador antigo).
+      //    Falhar aqui nunca pode impedir a rolagem, a contagem ou o pedal.
+      safe(Prompter.requestFullscreen);
+      safe(Prompter.requestWakeLock);
     },
 
     leave: function () {
-      Prompter.active = false;
       Prompter.playing = false;
+      Prompter.pendingPlay = false;
       Prompter.stopLoop();
-      clearTimeout(Prompter.cdTimer);
       $('#countdown').hidden = true;
+      Prompter.cdShown = -1;
       Voice.stop();
-      Prompter.releaseWakeLock();
-      Prompter.exitFullscreen();
+      safe(Prompter.releaseWakeLock);
+      safe(Prompter.exitFullscreen);
     },
 
     measure: function () {
@@ -302,12 +331,38 @@
       if (Prompter.raf) cancelAnimationFrame(Prompter.raf);
       Prompter.raf = 0;
     },
+    // religa o laco se ele tiver morrido (aba em segundo plano, throttle do sistema)
+    ensureLoop: function () {
+      if (Prompter.isOpen() && !Prompter.raf) Prompter.startLoop();
+    },
 
     tick: function (t) {
-      if (!Prompter.active) { Prompter.raf = 0; return; }
+      if (!Prompter.isOpen()) { Prompter.raf = 0; return; }
       if (!Prompter.lastT) Prompter.lastT = t;
       var dt = Math.min(0.05, (t - Prompter.lastT) / 1000);
       Prompter.lastT = t;
+
+      // o layout pode nao estar pronto no primeiro quadro; insiste ate ter altura real
+      if (Prompter.maxOffset <= 2) Prompter.measure();
+
+      /* Contagem regressiva e play automatico moram aqui, no laco de animacao,
+         em vez de um setTimeout: assim nao dependem de temporizador que o sistema
+         possa atrasar ou engolir, e o play automatico sempre acontece. */
+      if (Prompter.pendingPlay) {
+        var left = Prompter.playAt - Date.now();
+        if (left <= 0) {
+          Prompter.pendingPlay = false;
+          Prompter.cdShown = -1;
+          $('#countdown').hidden = true;
+          Prompter.play();
+        } else {
+          var secs = Math.ceil(left / 1000);
+          if (secs !== Prompter.cdShown) {
+            Prompter.cdShown = secs;
+            $('#countdown-num').textContent = String(secs);
+          }
+        }
+      }
 
       var target = Prompter.playing ? settings.speed : 0;
       // aceleracao e desaceleracao suaves, independentes da taxa de quadros.
@@ -331,26 +386,38 @@
     },
 
     play: function () {
+      if (!Prompter.isOpen()) return;   // sem prompter na tela, nada de estado fantasma
+      Prompter.cancelCountdown();
+      Prompter.ensureLoop();
       if (Prompter.playing) return;
+      if (Prompter.maxOffset <= 2) Prompter.measure();
       if (Prompter.offset >= Prompter.maxOffset) Prompter.offset = 0;
       Prompter.playing = true;
       Prompter.updatePlayIcon();
     },
     pause: function () {
+      if (!Prompter.isOpen()) return;
+      Prompter.cancelCountdown();
+      Prompter.ensureLoop();
       if (!Prompter.playing) return;
       Prompter.playing = false;
       Prompter.updatePlayIcon();
     },
     toggle: function () {
-      clearTimeout(Prompter.cdTimer);
-      $('#countdown').hidden = true;
       if (Prompter.playing) Prompter.pause(); else Prompter.play();
     },
+    cancelCountdown: function () {
+      Prompter.pendingPlay = false;
+      Prompter.cdShown = -1;
+      $('#countdown').hidden = true;
+    },
     jump: function (px) {
+      if (!Prompter.isOpen()) return;
       Prompter.offset = Math.max(0, Math.min(Prompter.maxOffset, Prompter.offset + px));
       Prompter.paint();
     },
     toTop: function () {
+      if (!Prompter.isOpen()) return;
       Prompter.offset = 0;
       Prompter.cur = 0;
       Prompter.paint();
@@ -369,43 +436,51 @@
 
     countdownThenPlay: function () {
       var n = settings.countdown | 0;
-      var box = $('#countdown'), num = $('#countdown-num');
-      clearTimeout(Prompter.cdTimer);
-      if (n <= 0) { box.hidden = true; Prompter.play(); return; }
-      box.hidden = false;
-      var step = function () {
-        num.textContent = String(n);
-        if (n <= 0) { box.hidden = true; Prompter.play(); return; }
-        n--;
-        Prompter.cdTimer = setTimeout(step, 1000);
-      };
-      step();
+      if (!(n > 0)) { Prompter.cancelCountdown(); Prompter.play(); return; }
+      Prompter.pendingPlay = true;
+      Prompter.playAt = Date.now() + n * 1000;
+      Prompter.cdShown = n;
+      $('#countdown-num').textContent = String(n);
+      $('#countdown').hidden = false;
+      Prompter.ensureLoop();
     },
 
     requestWakeLock: function () {
-      if (!settings.wake || !('wakeLock' in navigator)) return;
-      try {
-        navigator.wakeLock.request('screen').then(function (lock) {
-          Prompter.wakeLock = lock;
+      if (!settings.wake || !navigator.wakeLock || !navigator.wakeLock.request) return;
+      var p = navigator.wakeLock.request('screen');
+      if (!p || !p.then) return;
+      p.then(function (lock) {
+        Prompter.wakeLock = lock;
+        if (lock && lock.addEventListener) {
           lock.addEventListener('release', function () { Prompter.wakeLock = null; });
-        }).catch(function () { /* negado ou indisponivel */ });
-      } catch (e) { /* ignora */ }
+        }
+      }).catch(function () { /* negado, sem bateria, ou aparelho sem suporte */ });
     },
     releaseWakeLock: function () {
-      if (Prompter.wakeLock) { try { Prompter.wakeLock.release(); } catch (e) { /* ignora */ } }
+      var lock = Prompter.wakeLock;
       Prompter.wakeLock = null;
+      if (lock && lock.release) safe(function () { return lock.release(); });
+    },
+
+    // Instalado como PWA em modo fullscreen (a TWA do Android), o pedido explicito
+    // falha e devolve promessa rejeitada. Nao pedimos nesse caso, e se pedirmos,
+    // a rejeicao e engolida: fullscreen nunca e pre requisito para nada.
+    alreadyImmersive: function () {
+      if (document.fullscreenElement || document.webkitFullscreenElement) return true;
+      if (!window.matchMedia) return false;
+      return window.matchMedia('(display-mode: fullscreen)').matches ||
+        window.matchMedia('(display-mode: standalone)').matches;
     },
     requestFullscreen: function () {
-      if (!settings.fullscreen) return;
+      if (!settings.fullscreen || Prompter.alreadyImmersive()) return;
       var d = document.documentElement;
       var fn = d.requestFullscreen || d.webkitRequestFullscreen;
-      if (fn) { try { fn.call(d); } catch (e) { /* alguns navegadores exigem gesto */ } }
+      if (fn) safe(function () { return fn.call(d); });
     },
     exitFullscreen: function () {
-      if (document.fullscreenElement || document.webkitFullscreenElement) {
-        var fn = document.exitFullscreen || document.webkitExitFullscreen;
-        if (fn) { try { fn.call(document); } catch (e) { /* ignora */ } }
-      }
+      if (!(document.fullscreenElement || document.webkitFullscreenElement)) return;
+      var fn = document.exitFullscreen || document.webkitExitFullscreen;
+      if (fn) safe(function () { return fn.call(document); });
     }
   };
 
@@ -427,16 +502,16 @@
   });
 
   window.addEventListener('resize', function () {
-    if (Prompter.active) { Prompter.measure(); Prompter.paint(); }
+    if (Prompter.isOpen()) { Prompter.measure(); Prompter.paint(); }
   });
   window.addEventListener('orientationchange', function () {
-    setTimeout(function () { if (Prompter.active) { Prompter.measure(); Prompter.paint(); } }, 250);
+    setTimeout(function () { if (Prompter.isOpen()) { Prompter.measure(); Prompter.paint(); } }, 250);
   });
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible' && Prompter.active) {
-      Prompter.requestWakeLock();
-      if (!Prompter.raf) Prompter.startLoop();
-    }
+    if (document.visibilityState !== 'visible' || !Prompter.isOpen()) return;
+    safe(Prompter.requestWakeLock);
+    Prompter.ensureLoop();
+    Voice.resumeIfWanted();
   });
 
   /* ============================ Ajustes ============================ */
@@ -455,7 +530,7 @@
       st.classList.toggle('mirror-v', !!settings.mirrorV);
       $('#guide').hidden = !settings.guide;
       Prompter.updateSpeedTag();
-      if (Prompter.active) requestAnimationFrame(function () { Prompter.measure(); Prompter.paint(); });
+      if (Prompter.isOpen()) requestAnimationFrame(function () { Prompter.measure(); Prompter.paint(); });
     },
 
     syncControls: function () {
@@ -665,7 +740,7 @@
 
     if (!ev.repeat) Pedal.push({ kind: 'key', key: ev.key, code: ev.code, keyCode: ev.keyCode, repeat: false });
 
-    if (current !== 'prompter') return;
+    if (!Prompter.isOpen()) return;
     if (!$('#panel-settings').hidden) {
       if (ev.key === 'Escape') { ev.preventDefault(); Settings.close(); }
       return;
@@ -690,7 +765,7 @@
     MIN_WHEEL: 8,        // unidades de delta
     WHEEL_GAP: 350,      // ms entre dois comandos de roda
 
-    interested: function () { return current === 'prompter' || current === 'pedal' || !!Pedal.capturing; },
+    interested: function () { return Prompter.isOpen() || current === 'pedal' || !!Pedal.capturing; },
 
     emit: function (token, rec, ev) {
       if (Pedal.capturing) {
@@ -700,7 +775,7 @@
         return;
       }
       Pedal.push(rec);
-      if (current !== 'prompter') return;
+      if (!Prompter.isOpen()) return;
       if (!$('#panel-settings').hidden) return;
       var a = actionForToken(token);
       if (!a) return;
@@ -716,7 +791,7 @@
       if (Math.max(ax, ay) < Gestures.MIN_WHEEL) return;
       var now = Date.now();
       if (now - Gestures.lastWheel < Gestures.WHEEL_GAP) {
-        if (current === 'prompter' && ev.cancelable) ev.preventDefault();
+        if (Prompter.isOpen() && ev.cancelable) ev.preventDefault();
         return;
       }
       Gestures.lastWheel = now;
@@ -767,6 +842,9 @@
     wanted: false,
     supported: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
     flagTimer: 0,
+    retryTimer: 0,
+    startedAt: 0,
+    curtas: 0,        // quedas seguidas em menos de SHORT_LIFE
 
     init: function () {
       $('#voice-support').textContent = Voice.supported
@@ -777,17 +855,33 @@
 
     toggle: function () {
       if (!Voice.supported) return;
-      if (Voice.wanted) Voice.stop(); else Voice.start();
+      if (Voice.wanted) Voice.stop(); else { Voice.wanted = true; Voice.curtas = 0; Voice.spawn(); Voice.paint('Voz ativa'); }
     },
 
-    start: function () {
-      if (!Voice.supported || Voice.wanted) return;
+    /* No Chrome do Android a sessao continua morre sozinha, quase sempre com
+       "aborted" ou "no-speech", as vezes em menos de um segundo. Enquanto o usuario
+       quiser voz e o prompter estiver aberto, religamos sempre. O backoff evita
+       laco quente: 350 ms no caso normal, 2 s se a sessao anterior nem durou 1 s. */
+    RETRY_FAST: 350,
+    RETRY_SLOW: 2000,
+    SHORT_LIFE: 1000,
+
+    spawn: function () {
+      if (!Voice.supported || !Voice.wanted) return;
+      clearTimeout(Voice.retryTimer);
+      // solta a sessao anterior antes de criar a nova, para o onend dela nao agendar nada
+      var antiga = Voice.rec;
+      Voice.rec = null;
+      if (antiga) safe(function () { return antiga.abort ? antiga.abort() : antiga.stop(); });
+
       var Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
-      var r = new Ctor();
+      var r;
+      try { r = new Ctor(); } catch (e) { Voice.scheduleRestart(Voice.RETRY_SLOW); return; }
       r.lang = 'pt-BR';
       r.continuous = true;
       r.interimResults = false;
       r.maxAlternatives = 1;
+
       r.onresult = function (ev) {
         for (var i = ev.resultIndex; i < ev.results.length; i++) {
           var res = ev.results[i];
@@ -796,28 +890,48 @@
         }
       };
       r.onerror = function (ev) {
-        if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+        var motivo = ev && ev.error;
+        // so a falta de permissao e definitiva; o resto e recuperavel
+        if (motivo === 'not-allowed' || motivo === 'service-not-allowed') {
           Voice.wanted = false;
+          clearTimeout(Voice.retryTimer);
           Voice.paint('Voz bloqueada');
         }
       };
       r.onend = function () {
-        if (!Voice.wanted || !Prompter.active) return;
-        setTimeout(function () {
-          if (!Voice.wanted || !Prompter.active) return;
-          try { r.start(); } catch (e) { /* ja em execucao */ }
-        }, 350);
+        if (Voice.rec !== r) return;                       // sessao velha, ignora
+        // primeira queda religa rapido; so escalona para 2 s se estiver batendo em looping
+        if (Date.now() - Voice.startedAt < Voice.SHORT_LIFE) Voice.curtas++; else Voice.curtas = 0;
+        Voice.scheduleRestart(Voice.curtas >= 2 ? Voice.RETRY_SLOW : Voice.RETRY_FAST);
       };
+
       Voice.rec = r;
-      Voice.wanted = true;
-      try { r.start(); } catch (e) { /* ignora */ }
-      Voice.paint('Voz ativa');
+      Voice.startedAt = Date.now();
+      try { r.start(); } catch (e) { Voice.scheduleRestart(Voice.RETRY_SLOW); }
+    },
+
+    scheduleRestart: function (delay) {
+      clearTimeout(Voice.retryTimer);
+      if (!Voice.wanted || !Prompter.isOpen()) return;
+      Voice.retryTimer = setTimeout(function () {
+        if (!Voice.wanted || !Prompter.isOpen()) return;
+        Voice.spawn();
+      }, delay);
+    },
+
+    // volta a ouvir ao trazer o aplicativo de volta para a frente
+    resumeIfWanted: function () {
+      if (!Voice.wanted || !Prompter.isOpen()) return;
+      if (Voice.rec && Date.now() - Voice.startedAt < Voice.SHORT_LIFE) return;
+      Voice.scheduleRestart(Voice.RETRY_FAST);
     },
 
     stop: function () {
       Voice.wanted = false;
-      if (Voice.rec) { try { Voice.rec.stop(); } catch (e) { /* ignora */ } }
+      clearTimeout(Voice.retryTimer);
+      var r = Voice.rec;
       Voice.rec = null;
+      if (r) safe(function () { return r.abort ? r.abort() : r.stop(); });
       Voice.paint(null);
     },
 
@@ -856,7 +970,7 @@
     ],
 
     handle: function (raw) {
-      if (!Prompter.active) return;
+      if (!Prompter.isOpen()) return;
       var t = Voice.norm(raw);
       if (!t) return;
       // so aceita frase curta e isolada, para o proprio roteiro nao virar comando
