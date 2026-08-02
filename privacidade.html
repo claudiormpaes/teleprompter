@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Politica de Privacidade - Teleprompter</title>
+<style>
+  :root{
+    --bg:#000;
+    --surface:#111214;
+    --surface-2:#191b1f;
+    --line:#26292f;
+    --fg:#f2f3f5;
+    --fg-dim:#9aa0a8;
+    --accent:#4c9aff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--bg);color:var(--fg);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    font-size:16px;line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{
+    padding:20px 16px;border-bottom:1px solid var(--line);background:var(--surface);
+  }
+  header h1{margin:0;font-size:18px;font-weight:600;letter-spacing:.2px}
+  main{max-width:640px;margin:0 auto;padding:20px 16px 60px}
+  h2{font-size:15px;font-weight:600;color:var(--fg);text-transform:uppercase;letter-spacing:.06em;
+     margin:28px 0 8px;border-top:1px solid var(--line);padding-top:20px}
+  h2:first-of-type{border-top:0;padding-top:0;margin-top:0}
+  p{color:var(--fg-dim);margin:0 0 12px}
+  strong{color:var(--fg);font-weight:600}
+  a{color:var(--accent)}
+  .card{
+    border:1px solid var(--line);border-radius:14px;background:var(--surface);
+    padding:14px 16px;margin:0 0 12px;
+  }
+  .voltar{
+    display:inline-block;margin-top:24px;color:var(--accent);text-decoration:none;
+    border:1px solid var(--line);border-radius:12px;padding:10px 16px;background:var(--surface-2);
+  }
+  .data{color:var(--fg-dim);font-size:13px;margin-top:0}
+</style>
+</head>
+<body>
+<header><h1>Teleprompter</h1></header>
+<main>
+  <h2>Politica de Privacidade</h2>
+  <p class="data">Ultima atualizacao: agosto de 2026.</p>
+  <p>O Teleprompter e um aplicativo simples para leitura de roteiro na hora de gravar video.
+  Esta pagina explica, de forma direta, o que acontece com os dados de quem usa o app.</p>
+
+  <h2>Resumo</h2>
+  <div class="card">
+    <p style="margin:0"><strong>O desenvolvedor nao coleta, nao armazena e nao recebe nenhum dado
+    de quem usa o aplicativo.</strong> Tudo fica apenas no aparelho da pessoa.</p>
+  </div>
+
+  <h2>Roteiros e ajustes</h2>
+  <p>Os roteiros que voce escreve, junto com as preferencias de velocidade, fonte, cor, espelhamento
+  e o mapeamento do pedal, ficam guardados somente no armazenamento local do proprio navegador
+  (localStorage), dentro do seu aparelho. Nada disso e enviado para nenhum servidor. Se voce
+  desinstalar o app ou limpar os dados do site, essas informacoes se perdem e nao podem ser
+  recuperadas, porque o desenvolvedor nunca teve copia delas.</p>
+
+  <h2>Comando de voz e microfone</h2>
+  <p>O comando de voz e opcional e so funciona se a pessoa autorizar o uso do microfone. Quando
+  ativado, o aplicativo usa o servico de reconhecimento de fala embutido no navegador (a API Web
+  Speech, no caso do Chrome operada pelo Google) para transformar a fala em texto e reconhecer
+  palavras de comando como "iniciar" ou "pausar". O audio captado pelo microfone e processado por
+  esse servico do navegador, exige conexao com a internet enquanto o microfone estiver ligado e
+  segue a politica de privacidade do proprio navegador. O aplicativo, por si so, nao grava,
+  nao guarda e nao envia audio para nenhum servidor proprio.</p>
+
+  <h2>Terceiros</h2>
+  <p>Fora o servico de reconhecimento de voz do navegador, descrito acima e usado apenas quando o
+  microfone e ligado por escolha da pessoa, o aplicativo nao compartilha dados com nenhum outro
+  terceiro. Nao ha conta de usuario, nao ha anuncio, nao ha compra dentro do aplicativo e nao ha
+  ferramenta de analise ou rastreamento.</p>
+
+  <h2>Permissoes do aplicativo</h2>
+  <p>O aplicativo funciona offline depois da primeira abertura e nao pede permissao de camera,
+  localizacao, contatos ou armazenamento de arquivos. A unica permissao que pode aparecer e a de
+  microfone, pedida pelo proprio navegador, e somente se a pessoa tocar no botao de comando de voz.</p>
+
+  <h2>Alteracoes nesta politica</h2>
+  <p>Se esta politica mudar, a nova versao sera publicada neste mesmo endereco, com a data de
+  atualizacao revisada no topo da pagina.</p>
+
+  <h2>Contato</h2>
+  <p>Duvidas sobre este aplicativo ou sobre esta politica podem ser enviadas para
+  <a href="mailto:claudio@claudiopaes.com.br">claudio@claudiopaes.com.br</a>.</p>
+
+  <a class="voltar" href="./index.html">Voltar ao aplicativo</a>
+</main>
+</body>
+</html>
