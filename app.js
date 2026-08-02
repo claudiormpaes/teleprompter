@@ -4,7 +4,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v2';
+  var APP_VERSION = 'v3';
   var K_SCRIPTS = 'tp.scripts';
   var K_SETTINGS = 'tp.settings';
   var K_KEYS = 'tp.keys';
@@ -806,6 +806,15 @@
       Gestures.start = { x: t.clientX, y: t.clientY, at: Date.now() };
     },
 
+    onTouchMove: function (ev) {
+      // Sem isto o navegador inicia o pull-to-refresh durante o arrasto do
+      // pedal em modo toque e recarrega o app no meio da gravacao.
+      if (!Gestures.start) return;
+      if (!Prompter.isOpen() && !Pedal.capturing) return;
+      if (Prompter.isOpen() && !$('#panel-settings').hidden) return;
+      if (ev.cancelable) ev.preventDefault();
+    },
+
     onTouchEnd: function (ev) {
       var s = Gestures.start;
       Gestures.start = null;
@@ -823,6 +832,7 @@
 
   document.addEventListener('wheel', Gestures.onWheel, { passive: false });
   document.addEventListener('touchstart', Gestures.onTouchStart, { passive: true });
+  document.addEventListener('touchmove', Gestures.onTouchMove, { passive: false });
   // touchend nao pode ser passivo: precisamos cancelar o clique sintetico do deslize
   document.addEventListener('touchend', Gestures.onTouchEnd, { passive: false });
 
