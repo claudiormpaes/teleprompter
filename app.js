@@ -4,7 +4,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v3';
+  var APP_VERSION = 'v4';
   var K_SCRIPTS = 'tp.scripts';
   var K_SETTINGS = 'tp.settings';
   var K_KEYS = 'tp.keys';
@@ -889,14 +889,13 @@
       try { r = new Ctor(); } catch (e) { Voice.scheduleRestart(Voice.RETRY_SLOW); return; }
       r.lang = 'pt-BR';
       r.continuous = true;
-      r.interimResults = false;
+      r.interimResults = true;   // no Chrome Android o resultado final pode nunca chegar; comandos valem no interim
       r.maxAlternatives = 1;
 
       r.onresult = function (ev) {
         for (var i = ev.resultIndex; i < ev.results.length; i++) {
           var res = ev.results[i];
-          if (!res.isFinal) continue;
-          Voice.handle(res[0].transcript || '');
+          Voice.handle(res[0].transcript || '', res.isFinal);
         }
       };
       r.onerror = function (ev) {
@@ -971,20 +970,21 @@
 
     // Ordem importa: frases mais especificas antes das genericas.
     RULES: [
-      { act: 'faster', words: ['mais rapido', 'acelera', 'acelerar', 'rapido'] },
+      { act: 'faster', words: ['mais rapido', 'acelera', 'acelerar'] },
       { act: 'slower', words: ['mais devagar', 'devagar', 'desacelera', 'mais lento'] },
       { act: 'top', words: ['do inicio', 'recomecar', 'recomeca', 'voltar ao inicio', 'ir ao inicio'] },
-      { act: 'pause', words: ['pausar', 'pausa', 'parar', 'para', 'pera'] },
-      { act: 'back', words: ['voltar', 'volta'] },
-      { act: 'play', words: ['iniciar', 'comecar', 'comeca', 'vai', 'segue', 'play'] }
+      { act: 'pause', words: ['pausar', 'pausa', 'parar'] },
+      { act: 'back', words: ['voltar'] },
+      { act: 'play', words: ['iniciar', 'comecar', 'continuar', 'play'] }
     ],
 
-    handle: function (raw) {
+    handle: function (raw, isFinal) {
       if (!Prompter.isOpen()) return;
       var t = Voice.norm(raw);
       if (!t) return;
       // so aceita frase curta e isolada, para o proprio roteiro nao virar comando
-      if (t.split(' ').length > 4) return;
+      // (interim e ainda mais curto, porque e o comeco de qualquer frase lida)
+      if (t.split(' ').length > (isFinal ? 4 : 3)) return;
       for (var i = 0; i < Voice.RULES.length; i++) {
         var rule = Voice.RULES[i];
         for (var j = 0; j < rule.words.length; j++) {
@@ -995,7 +995,13 @@
       }
     },
 
+    lastAct: '', lastAt: 0,
+
     run: function (act, label) {
+      // interim e final da mesma fala chegam duas vezes; nao repete o comando
+      var now = Date.now();
+      if (act === Voice.lastAct && now - Voice.lastAt < 1500) return;
+      Voice.lastAct = act; Voice.lastAt = now;
       if (act === 'play') Prompter.play();
       else if (act === 'pause') Prompter.pause();
       else if (act === 'faster') Prompter.changeSpeed(10);
