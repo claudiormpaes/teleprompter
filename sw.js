@@ -1,6 +1,6 @@
 /* Service worker do Teleprompter: cache primeiro, com rede como reserva.
    Suba o valor de V a cada alteracao de arquivo para forcar a atualizacao. */
-const V = 'v9.1';
+const V = 'v9.2';
 const CACHE = 'teleprompter-' + V;
 
 const ASSETS = [

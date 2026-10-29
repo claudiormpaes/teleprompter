@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v9.1';
+  var APP_VERSION = 'v9.2';
   var K_SCRIPTS = 'tp.scripts';
   var K_SETTINGS = 'tp.settings';
   var K_KEYS = 'tp.keys2';          // v6: deslizes passaram a ser medidos com o celular em pe
@@ -920,7 +920,8 @@
       if (current === 'docs') $('#docs-status').textContent = 'Abrindo o Google Drive…';
       GDocs.loadPicker().then(function () {
         var P = window.google.picker;
-        var view = new P.DocsView(P.ViewId.DOCUMENTS).setMode(P.DocsViewMode.LIST);
+        // so documentos do Google Docs: a vista DOCUMENTS tambem mostra .txt, .md e .docx, que o app nao traz
+        var view = new P.DocsView(P.ViewId.DOCUMENTS).setMimeTypes(DOC_MIME).setMode(P.DocsViewMode.LIST);
         if (fileId && view.setFileIds) view.setFileIds(fileId);
         new P.PickerBuilder()
           .addView(view)
