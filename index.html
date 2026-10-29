@@ -1,7 +1,11 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
-<meta name="description" content="Teleprompter offline para gravacao de video, com controle por pedal Bluetooth e comando de voz.">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Teleprompter offline para gravacao de video, com pedal Bluetooth, velocidade em palavras por minuto e comando de voz.">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
@@ -9,175 +13,499 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="preload" href="./fonts/atkinson-next.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="./fonts/space-grotesk.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
 
-<!-- Icones SVG reutilizaveis, sem emoji e sem dependencia externa -->
+<!-- Icones SVG reutilizaveis, sem dependencia externa -->
 <svg style="display:none" aria-hidden="true">
-  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></symbol>
-  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M6.5 4.5h4v15h-4zM13.5 4.5h4v15h-4z"/></symbol>
-  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8zm0 5.2a1.8 1.8 0 1 1 0-3.6 1.8 1.8 0 0 1 0 3.6z"/><path d="M20.3 13.1c.05-.36.08-.73.08-1.1s-.03-.74-.08-1.1l2-1.5-1.9-3.3-2.35.95c-.57-.46-1.2-.83-1.88-1.1L15.8 2.5h-3.8l-.37 2.45c-.69.27-1.32.64-1.88 1.1L7.4 5.1 5.5 8.4l2 1.5c-.05.36-.08.73-.08 1.1s.03.74.08 1.1l-2 1.5 1.9 3.3 2.35-.95c.57.46 1.2.83 1.88 1.1l.37 2.45h3.8l.37-2.45c.69-.27 1.32-.64 1.88-1.1l2.35.95 1.9-3.3zM12 17.9A5.9 5.9 0 1 1 12 6.1a5.9 5.9 0 0 1 0 11.8z" opacity=".9"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7.5 4.6c0-.8.9-1.3 1.6-.9l11 6.9c.6.4.6 1.4 0 1.8l-11 6.9c-.7.4-1.6-.1-1.6-.9z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4.5" width="4.4" height="15" rx="1.2"/><rect x="13.6" y="4.5" width="4.4" height="15" rx="1.2"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4zM13 15.4a3.4 3.4 0 1 1 0-6.8 3.4 3.4 0 0 1 0 6.8z" transform="translate(-1 0)"/></symbol>
   <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 14.5a3 3 0 0 0 3-3v-6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M18 11.2h-1.6a4.4 4.4 0 0 1-8.8 0H6a6 6 0 0 0 5.2 5.94V20h1.6v-2.86A6 6 0 0 0 18 11.2z"/></symbol>
-  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></symbol>
-  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 11h14v2H5z"/></symbol>
-  <symbol id="i-top" viewBox="0 0 24 24"><path d="M5 4h14v2H5zM12 8l6.5 7h-4v5h-5v-5h-4z"/></symbol>
+  <symbol id="i-mic-off" viewBox="0 0 24 24"><path d="M15 10.4V5.5a3 3 0 0 0-5.9-.8zM9 8.9v2.6a3 3 0 0 0 4.6 2.5zM16.3 13.5l1.2 1.2a6 6 0 0 0 .5-3.5h-1.6a4.4 4.4 0 0 1-.1 2.3zM14.8 15.2a4.4 4.4 0 0 1-7.2-4H6a6 6 0 0 0 5.2 5.9V20h1.6v-2.9a6 6 0 0 0 3.1-1.2zM3.5 4.9l1.1-1.1 15.6 15.6-1.1 1.1z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M10.8 4.5h2.4v6.3h6.3v2.4h-6.3v6.3h-2.4v-6.3H4.5v-2.4h6.3z"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M4.5 10.8h15v2.4h-15z"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M5 5h2.4v14H5zM19 6.1v11.8c0 .8-.9 1.3-1.6.9L9 13a1.1 1.1 0 0 1 0-1.9l8.4-5.9c.7-.4 1.6.1 1.6.9z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M16.6 5H19v14h-2.4zM5 6.1v11.8c0 .8.9 1.3 1.6.9L15 13a1.1 1.1 0 0 0 0-1.9L6.6 5.2C5.9 4.8 5 5.3 5 6.1z"/></symbol>
+  <symbol id="i-top" viewBox="0 0 24 24"><path d="M5 4h14v2.4H5zM12 8l6.5 7h-4.3v5h-4.4v-5H5.5z"/></symbol>
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></symbol>
   <symbol id="i-close" viewBox="0 0 24 24"><path d="M18.3 7.1 16.9 5.7 12 10.6 7.1 5.7 5.7 7.1l4.9 4.9-4.9 4.9 1.4 1.4 4.9-4.9 4.9 4.9 1.4-1.4-4.9-4.9z"/></symbol>
-  <symbol id="i-pedal" viewBox="0 0 24 24"><path d="M4 7h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm2 2.6v2.8h12V9.6z"/><path d="M7 16h10v2H7z" opacity=".65"/></symbol>
-  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zm7 1.5V8h3.5z"/></symbol>
-  <symbol id="i-copy" viewBox="0 0 24 24"><path d="M9 2h9v14H9zM4 6h3v12h9v3H4z"/></symbol>
-  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M6 7h12l-1 14H7zM9 4h6l1 2H8z"/></symbol>
+  <symbol id="i-pedal" viewBox="0 0 24 24"><path d="M3 9.5A2.5 2.5 0 0 1 5.5 7h13A2.5 2.5 0 0 1 21 9.5v5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 14.5zm2.4.3v4.4h5.4V9.8zm7.8 0v4.4h5.4V9.8z"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zm7 1.5V8h3.5zM8.5 11h7v1.6h-7zm0 3.2h7v1.6h-7z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><path d="M9 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm0 2v10h9V4zM4 7h1.5v12.5H15V21H4z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M6 7h12l-1 14H7zM9 3.5h6l1 2H8z"/></symbol>
+  <symbol id="i-mirror" viewBox="0 0 24 24"><path d="M11 3h2v18h-2zM3.5 7.2 9 12l-5.5 4.8zM20.5 7.2V16.8L15 12z"/></symbol>
+  <symbol id="i-paste" viewBox="0 0 24 24"><path d="M9 2.5h6a1 1 0 0 1 1 1V5h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2V3.5a1 1 0 0 1 1-1zm1 1.8v2h4v-2zM6 7v13h12V7h-2v1.3H8V7z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M12 3 7 8h3.8v6h2.4V8H17zM5 17h14v3H5z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m9.5 16.2-4.2-4.2-1.6 1.6 5.8 5.8L21 7.9l-1.6-1.6z"/></symbol>
+  <symbol id="i-gdoc" viewBox="0 0 24 24"><path d="M6 2.5h8.5L19 7v13a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 20V4a1.5 1.5 0 0 1 1-1.5zm8 1.3V7.5h3.7zM8 11h8v1.6H8zm0 3.2h8v1.6H8zm0 3.2h5.5V19H8z"/></symbol>
+  <symbol id="i-cloud-up" viewBox="0 0 24 24"><path d="M6.6 19.5a4.6 4.6 0 0 1-.9-9.1 6.6 6.6 0 0 1 12.7-1.3 5.2 5.2 0 0 1-.6 10.4h-4.6v-4.6h2.7L12 10.3l-3.9 4.6h2.7v4.6z"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 24 24"><path d="M12 4a8 8 0 0 1 7.4 5H17l3.2 4 3.3-4h-2.2A10 10 0 0 0 3.1 8.6l1.9.7A8 8 0 0 1 12 4zm7 10.7A8 8 0 0 1 4.6 15H7l-3.2-4L.5 15h2.2a10 10 0 0 0 18.2.4z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><path d="M10.5 3a7.5 7.5 0 0 1 6 12l4.3 4.3-1.5 1.5-4.3-4.3A7.5 7.5 0 1 1 10.5 3zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11z"/></symbol>
+  <symbol id="i-rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="i-selfie" viewBox="0 0 24 24"><path d="M7.5 2h9A2.5 2.5 0 0 1 19 4.5v15a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 5 19.5v-15A2.5 2.5 0 0 1 7.5 2zm0 2a.5.5 0 0 0-.5.5v15a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5v-15a.5.5 0 0 0-.5-.5zM12 5a1.3 1.3 0 1 1 0 2.6A1.3 1.3 0 0 1 12 5zM9 11h6v1.6H9zm0 3h6v1.6H9z"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M9 4h6l1.6 2.2H20A2 2 0 0 1 22 8.2V18a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.2a2 2 0 0 1 2-2h3.4zm3 4.4a4.6 4.6 0 1 0 0 9.2 4.6 4.6 0 0 0 0-9.2zm0 2a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2z"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5zm6 3.6v5.8c0 .5.5.8.9.5l4.6-2.9a.6.6 0 0 0 0-1l-4.6-2.9c-.4-.3-.9 0-.9.5z"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="18.5" r="2"/></symbol>
 </svg>
 
 <div id="app">
 
   <!-- ================= BIBLIOTECA ================= -->
-  <section class="view is-active" id="view-library">
+  <section class="view is-active" id="view-library" aria-labelledby="lib-title">
     <header class="topbar">
-      <h1 class="brand">Teleprompter</h1>
+      <h1 class="wordmark" id="lib-title" translate="no">Prompter<span class="dot" aria-hidden="true"></span></h1>
       <div class="topbar-actions">
-        <button class="btn icon" id="btn-open-pedal" title="Pedal" aria-label="Pedal"><svg class="ic"><use href="#i-pedal"></use></svg></button>
-        <button class="btn icon" id="btn-open-settings" title="Ajustes" aria-label="Ajustes"><svg class="ic"><use href="#i-gear"></use></svg></button>
+        <button class="btn icon pedal-btn" id="btn-open-pedal" type="button" aria-label="Pedal">
+          <svg class="ic" aria-hidden="true"><use href="#i-pedal"></use></svg><i class="led" id="lib-led" aria-hidden="true"></i>
+        </button>
+        <button class="btn icon" id="btn-open-settings" type="button" aria-label="Ajustes"><svg class="ic" aria-hidden="true"><use href="#i-gear"></use></svg></button>
       </div>
     </header>
     <div class="scrollarea">
-      <button class="btn primary block" id="btn-new">
-        <svg class="ic"><use href="#i-plus"></use></svg><span>Novo roteiro</span>
-      </button>
-      <ul class="list" id="script-list"></ul>
-      <p class="hint" id="library-empty" hidden>Nenhum roteiro ainda. Toque em Novo roteiro para comecar.</p>
-      <p class="hint">Os roteiros ficam salvos apenas neste aparelho, no armazenamento do navegador.</p>
-      <p class="hint"><a href="./privacidade.html" style="color:inherit;text-decoration:underline">Politica de privacidade</a></p>
+      <div class="onboard" id="onboard" hidden>
+        <div class="onboard-art" aria-hidden="true"><svg class="ic"><use href="#i-pedal"></use></svg></div>
+        <div class="onboard-main">
+          <p class="onboard-title">Ensine o seu pedal ao app</p>
+          <p class="hint">Dois passos: pise no da direita, depois no da esquerda. Leva 10 segundos.</p>
+          <div class="onboard-actions">
+            <button class="btn primary" id="btn-onboard-go" type="button">Configurar agora</button>
+            <button class="btn ghost" id="btn-onboard-skip" type="button">Depois</button>
+          </div>
+        </div>
+      </div>
+      <div class="up-status" id="up-status" role="status" hidden>
+        <div class="up-head">
+          <svg class="ic" aria-hidden="true"><use href="#i-cloud-up"></use></svg>
+          <div class="up-main"><b id="up-text"></b><span class="up-sub" id="up-sub" hidden></span></div>
+          <button class="btn" id="btn-up-login" type="button" hidden>Entrar</button>
+        </div>
+        <div class="up-bar" aria-hidden="true"><i id="up-bar"></i></div>
+        <ul class="up-list" id="up-list" aria-label="Vídeos na fila do Drive"></ul>
+        <p class="up-keep" id="up-keep" hidden>Deixe o app aberto e com internet até terminar: com o app fechado o envio para. A tela fica acesa enquanto envia.</p>
+        <details class="up-done" id="up-done" hidden><summary id="up-done-sum"></summary><ul id="up-done-list"></ul></details>
+      </div>
+      <div class="lib-actions">
+        <button class="btn primary xl wide" id="btn-new" type="button">
+          <svg class="ic" aria-hidden="true"><use href="#i-plus"></use></svg><span>Novo roteiro</span>
+        </button>
+        <button class="btn xl" id="btn-gdocs" type="button">
+          <svg class="ic gdoc" aria-hidden="true"><use href="#i-gdoc"></use></svg><span>Google Docs</span>
+        </button>
+        <button class="btn xl ghost" id="btn-import" type="button">
+          <svg class="ic" aria-hidden="true"><use href="#i-file"></use></svg><span>Arquivo</span>
+        </button>
+      </div>
+      <ul class="list" id="script-list" aria-label="Roteiros"></ul>
+      <div class="empty" id="library-empty" hidden>
+        <p class="empty-title">Nenhum roteiro ainda</p>
+        <p class="hint">Crie um roteiro novo ou importe um arquivo de texto (.txt ou .md).</p>
+      </div>
+      <p class="foot">Os roteiros ficam salvos neste aparelho. Faça backup em Ajustes &gt; Dados.
+        <a href="./privacidade.html">Política de privacidade</a></p>
     </div>
+    <input type="file" id="file-import" accept=".txt,.md,.markdown,.json,text/plain,application/json" hidden>
   </section>
 
   <!-- ================= EDITOR ================= -->
-  <section class="view" id="view-editor">
+  <section class="view" id="view-editor" aria-label="Editor">
     <header class="topbar">
-      <button class="btn icon" id="btn-editor-back" title="Voltar" aria-label="Voltar"><svg class="ic"><use href="#i-back"></use></svg></button>
-      <input class="title-input" id="editor-title" type="text" placeholder="Titulo do roteiro" autocomplete="off">
+      <button class="btn icon" id="btn-editor-back" type="button" aria-label="Voltar para a lista"><svg class="ic" aria-hidden="true"><use href="#i-back"></use></svg></button>
+      <label class="sr-only" for="editor-title">Título do roteiro</label>
+      <input class="title-input" id="editor-title" type="text" placeholder="Título do roteiro…" autocomplete="off" enterkeyhint="next">
       <div class="topbar-actions">
-        <button class="btn icon" id="btn-duplicate" title="Duplicar" aria-label="Duplicar"><svg class="ic"><use href="#i-copy"></use></svg></button>
-        <button class="btn icon danger" id="btn-delete" title="Apagar" aria-label="Apagar"><svg class="ic"><use href="#i-trash"></use></svg></button>
+        <button class="btn icon" id="btn-paste" type="button" aria-label="Colar texto"><svg class="ic" aria-hidden="true"><use href="#i-paste"></use></svg></button>
+        <button class="btn icon" id="btn-editor-menu" type="button" aria-label="Mais opções" aria-haspopup="true" aria-expanded="false"><svg class="ic" aria-hidden="true"><use href="#i-dots"></use></svg></button>
+      </div>
+      <div class="menu" id="editor-menu" role="menu" hidden>
+        <button type="button" role="menuitem" id="btn-gdoc-refresh" hidden><svg class="ic" aria-hidden="true"><use href="#i-sync"></use></svg>Atualizar do Google Docs</button>
+        <button type="button" role="menuitem" id="btn-duplicate"><svg class="ic" aria-hidden="true"><use href="#i-copy"></use></svg>Duplicar</button>
+        <button type="button" role="menuitem" id="btn-delete" class="danger"><svg class="ic" aria-hidden="true"><use href="#i-trash"></use></svg>Apagar</button>
       </div>
     </header>
+    <div class="linkbar" id="editor-link" hidden>
+      <svg class="ic gdoc" aria-hidden="true"><use href="#i-gdoc"></use></svg>
+      <span class="linkbar-text" id="editor-link-text"></span>
+      <button class="btn" id="btn-gdoc-refresh2" type="button"><svg class="ic" aria-hidden="true"><use href="#i-sync"></use></svg><span>Atualizar</span></button>
+    </div>
     <div class="editor-wrap">
-      <textarea id="editor-text" spellcheck="true" placeholder="Escreva ou cole o texto aqui."></textarea>
+      <label class="sr-only" for="editor-text">Texto do roteiro</label>
+      <textarea id="editor-text" spellcheck="true" placeholder="Escreva ou cole o texto aqui.&#10;&#10;Deixe uma linha em branco entre os parágrafos: o pedal volta de parágrafo em parágrafo.&#10;&#10;# Título de bloco (linha que começa com #)&#10;[indicação entre colchetes, não é lida]&#10;**ênfase** entre dois asteriscos"></textarea>
     </div>
     <footer class="bottombar">
-      <span class="save-state" id="save-state">Salvo</span>
-      <button class="btn primary grow" id="btn-present">
-        <svg class="ic"><use href="#i-play"></use></svg><span>Apresentar</span>
+      <div class="editor-stats" id="editor-stats" aria-live="polite"><span id="save-state">Salvo</span></div>
+      <button class="btn primary xl grow" id="btn-present" type="button">
+        <svg class="ic" aria-hidden="true"><use href="#i-play"></use></svg><span>Apresentar</span>
       </button>
     </footer>
   </section>
 
   <!-- ================= PROMPTER ================= -->
-  <section class="view" id="view-prompter">
+  <section class="view" id="view-prompter" aria-label="Teleprompter">
+    <!-- tudo dentro de #stage e espelhado junto: texto, linha, contagem e avisos -->
     <div class="stage" id="stage">
-      <div class="scroller" id="scroller"></div>
+      <div class="scroller" id="scroller"><div class="content" id="content"></div></div>
+      <div class="readfade" id="readfade" aria-hidden="true"></div>
+      <div class="guide" id="guide" aria-hidden="true">
+        <svg viewBox="0 0 24 24" class="guide-arrow"><path d="M5 5.6v12.8c0 .8.9 1.3 1.6.8L17 12.8a1 1 0 0 0 0-1.6L6.6 4.8C5.9 4.3 5 4.8 5 5.6z"/></svg>
+        <span class="guide-band"></span>
+        <svg viewBox="0 0 24 24" class="guide-arrow flip"><path d="M5 5.6v12.8c0 .8.9 1.3 1.6.8L17 12.8a1 1 0 0 0 0-1.6L6.6 4.8C5.9 4.3 5 4.8 5 5.6z"/></svg>
+      </div>
+      <div class="pause-pill" id="pause-pill" hidden><svg class="ic" aria-hidden="true"><use href="#i-pause"></use></svg>Pausado</div>
+      <div class="countdown" id="countdown" hidden><span id="countdown-num">3</span></div>
+      <div class="flash" id="flash" aria-hidden="true"><div class="flash-icon"><svg class="ic"><use id="flash-use" href="#i-play"></use></svg></div><div class="flash-text" id="flash-text"></div></div>
     </div>
-    <div class="guide" id="guide" aria-hidden="true">
-      <svg viewBox="0 0 24 24" class="guide-arrow"><path d="M4 12l8-6v4h8v4h-8v4z"/></svg>
-      <span class="guide-line"></span>
-      <svg viewBox="0 0 24 24" class="guide-arrow flip"><path d="M4 12l8-6v4h8v4h-8v4z"/></svg>
+    <div class="progress" aria-hidden="true"><i id="progress-bar"></i></div>
+
+    <!-- gravacao: imagem da camera para enquadrar e selo de REC (fora do palco: nunca espelhados) -->
+    <div class="cam" id="cam" hidden><video id="cam-video" autoplay muted playsinline></video></div>
+    <div class="flipwarn" id="flipwarn" hidden role="dialog" aria-modal="true" aria-labelledby="flip-title">
+      <div class="flip-art" aria-hidden="true"><svg class="ic"><use href="#i-selfie"></use></svg></div>
+      <h2 class="flip-title" id="flip-title">Deixe o celular de cabeça para baixo</h2>
+      <p class="hint center">A lente fica embaixo, colada no texto. Quando virar, este aviso some sozinho.</p>
+      <button class="btn primary xl" id="btn-flip-ok" type="button">Já está</button>
     </div>
-    <div class="progress"><i id="progress-bar"></i></div>
-    <div class="countdown" id="countdown" hidden><span id="countdown-num">3</span></div>
+    <div class="player" id="player" hidden role="dialog" aria-modal="true" aria-label="Última gravação">
+      <video id="player-video" controls playsinline></video>
+      <div class="player-bar"><span id="player-name"></span><button class="btn" id="btn-player-close" type="button">Fechar</button></div>
+    </div>
+    <button class="rec-badge" id="rec-badge" type="button" aria-label="Gravando. Toque para parar." hidden><i aria-hidden="true"></i><span id="rec-label">REC</span> <span id="rec-time">00:00</span><span class="rec-vu" aria-hidden="true"><b id="rec-vu"></b></span><svg class="ic" aria-hidden="true"><use href="#i-stop"></use></svg></button>
+    <!-- o som da gravacao: faixa grande logo acima da linha de leitura, onde a pessoa esta olhando -->
+    <div class="snd-alert" id="snd-alert" role="status" aria-live="assertive" hidden>
+      <svg class="ic" aria-hidden="true"><use id="snd-icon" href="#i-mic"></use></svg>
+      <div><b id="snd-title"></b><span class="snd-vu" aria-hidden="true"><i id="snd-vu"></i></span><span id="snd-sub"></span></div>
+    </div>
+
+    <!-- controles do operador (nao espelhados) -->
+    <div class="p-top" id="p-top">
+      <button class="btn icon glass" id="pc-exit" type="button" aria-label="Sair do teleprompter"><svg class="ic" aria-hidden="true"><use href="#i-close"></use></svg></button>
+      <div class="p-title"><span id="p-title"></span><button class="p-up" id="p-up" type="button" hidden></button></div>
+      <button class="btn icon glass" id="pc-last" type="button" aria-label="Ver a última gravação" hidden><svg class="ic" aria-hidden="true"><use href="#i-film"></use></svg></button>
+      <button class="btn icon glass rec-btn" id="pc-rec" type="button" aria-label="Gravar" aria-pressed="false" hidden><svg class="ic" aria-hidden="true"><use id="pc-rec-use" href="#i-rec"></use></svg></button>
+      <button class="btn icon glass" id="pc-mirror" type="button" aria-label="Espelhar texto" aria-pressed="false"><svg class="ic" aria-hidden="true"><use href="#i-mirror"></use></svg></button>
+      <button class="btn icon glass" id="pc-mic" type="button" aria-label="Comando de voz" aria-pressed="false"><svg class="ic" aria-hidden="true"><use href="#i-mic"></use></svg></button>
+      <button class="btn icon glass" id="pc-settings" type="button" aria-label="Ajustes"><svg class="ic" aria-hidden="true"><use href="#i-gear"></use></svg></button>
+    </div>
     <div class="voice-flag" id="voice-flag" hidden>Voz ativa</div>
-    <div class="prompter-controls" id="prompter-controls">
-      <button class="btn icon" id="pc-exit" title="Sair" aria-label="Sair"><svg class="ic"><use href="#i-close"></use></svg></button>
-      <button class="btn icon" id="pc-top" title="Voltar ao inicio" aria-label="Voltar ao inicio"><svg class="ic"><use href="#i-top"></use></svg></button>
-      <button class="btn icon" id="pc-slower" title="Mais devagar" aria-label="Mais devagar"><svg class="ic"><use href="#i-minus"></use></svg></button>
-      <button class="btn icon big" id="pc-play" title="Iniciar ou pausar" aria-label="Iniciar ou pausar"><svg class="ic"><use href="#i-play"></use></svg></button>
-      <button class="btn icon" id="pc-faster" title="Mais rapido" aria-label="Mais rapido"><svg class="ic"><use href="#i-plus"></use></svg></button>
-      <button class="btn icon" id="pc-mic" title="Comando de voz" aria-label="Comando de voz"><svg class="ic"><use href="#i-mic"></use></svg></button>
-      <button class="btn icon" id="pc-settings" title="Ajustes" aria-label="Ajustes"><svg class="ic"><use href="#i-gear"></use></svg></button>
-      <span class="speed-tag" id="speed-tag">60 px/s</span>
-    </div>
-  </section>
 
-  <!-- ================= PEDAL ================= -->
-  <section class="view" id="view-pedal">
-    <header class="topbar">
-      <button class="btn icon" id="btn-pedal-back" title="Voltar" aria-label="Voltar"><svg class="ic"><use href="#i-back"></use></svg></button>
-      <h1 class="brand">Pedal e teclado</h1>
-    </header>
-    <div class="scrollarea">
-      <p class="hint">Pise no pedal para ver o que ele envia. O M-VAVE Cube Turner muda de modo: pode mandar PageUp e PageDown, setas, espaco ou enter, e tambem pode trabalhar em modo de toque, simulando rolagem ou deslize na tela. Os tres casos aparecem aqui. Se a lista ficar vazia, toque uma vez nesta tela para dar foco ao aplicativo e confira o pareamento Bluetooth.</p>
-
-      <h2 class="section-title">Monitor ao vivo</h2>
-      <div class="monitor" id="key-monitor"><p class="hint">Aguardando teclas e gestos.</p></div>
-      <button class="btn block" id="btn-clear-monitor">Limpar monitor</button>
-
-      <h2 class="section-title">Remapear acoes</h2>
-      <p class="hint">Cada acao aceita varios comandos, de tecla ou de gesto. Toque em Definir comando e acione o pedal para adicionar.</p>
-      <div id="mapping-list"></div>
-      <button class="btn block" id="btn-reset-keys">Restaurar padrao</button>
-    </div>
-    <div class="capture-overlay" id="capture-overlay" hidden>
-      <div class="capture-box">
-        <p class="capture-title">Acione o pedal, pressione a tecla ou faca o gesto</p>
-        <p class="hint" id="capture-action"></p>
-        <button class="btn" id="btn-capture-cancel">Cancelar</button>
+    <div class="dock" id="dock">
+      <div class="speed" id="speed" role="group" aria-label="Velocidade">
+        <button class="btn round step" id="pc-slower" type="button" aria-label="Mais devagar"><svg class="ic" aria-hidden="true"><use href="#i-minus"></use></svg></button>
+        <div class="dial" id="dial" role="slider" tabindex="0" aria-label="Velocidade em palavras por minuto" aria-valuemin="60" aria-valuemax="260" aria-valuenow="130">
+          <div class="dial-ruler" id="dial-ruler" aria-hidden="true"></div>
+          <div class="dial-read"><b id="dial-num">130</b><span>ppm</span></div>
+          <div class="dial-sub" id="dial-sub">arraste para ajustar</div>
+        </div>
+        <button class="btn round step" id="pc-faster" type="button" aria-label="Mais rápido"><svg class="ic" aria-hidden="true"><use href="#i-plus"></use></svg></button>
+      </div>
+      <div class="transport" id="transport">
+        <button class="btn round mid" id="pc-prev" type="button" aria-label="Voltar ao parágrafo anterior"><svg class="ic" aria-hidden="true"><use href="#i-prev"></use></svg></button>
+        <button class="btn round play" id="pc-play" type="button" aria-label="Iniciar"><svg class="ic" aria-hidden="true"><use id="pc-play-use" href="#i-play"></use></svg></button>
+        <button class="btn round mid" id="pc-next" type="button" aria-label="Avançar ao próximo parágrafo"><svg class="ic" aria-hidden="true"><use href="#i-next"></use></svg></button>
+        <button class="btn round stop-btn" id="pc-stop" type="button" aria-label="Parar a gravação" hidden><svg class="ic" aria-hidden="true"><use href="#i-stop"></use></svg></button>
+      </div>
+      <div class="scrub" id="scrub" role="slider" tabindex="0" aria-label="Posição no roteiro" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="scrub-track"><i id="scrub-fill"></i><div class="scrub-ticks" id="scrub-ticks"></div><b class="scrub-knob" id="scrub-knob"></b></div>
+        <div class="scrub-meta"><span id="scrub-para">Parágrafo 1</span><span id="scrub-time">faltam 0:00</span></div>
       </div>
     </div>
   </section>
 
-  <!-- ================= AJUSTES (sobreposicao) ================= -->
-  <div class="panel" id="panel-settings" hidden>
-    <div class="panel-sheet" role="dialog" aria-label="Ajustes">
-      <header class="panel-head">
-        <h2>Ajustes</h2>
-        <button class="btn icon" id="btn-settings-close" title="Fechar" aria-label="Fechar"><svg class="ic"><use href="#i-close"></use></svg></button>
+  <!-- ================= GOOGLE DOCS ================= -->
+  <section class="view" id="view-docs" aria-labelledby="docs-title">
+    <header class="topbar">
+      <button class="btn icon" id="btn-docs-back" type="button" aria-label="Voltar"><svg class="ic" aria-hidden="true"><use href="#i-back"></use></svg></button>
+      <h1 class="title" id="docs-title">Google Docs</h1>
+      <div class="topbar-actions">
+        <button class="btn icon" id="btn-docs-reload" type="button" aria-label="Recarregar a lista"><svg class="ic" aria-hidden="true"><use href="#i-sync"></use></svg></button>
+      </div>
+    </header>
+    <div class="scrollarea">
+      <div class="docs-connect" id="docs-connect" hidden>
+        <div class="onboard-art" aria-hidden="true"><svg class="ic"><use href="#i-gdoc"></use></svg></div>
+        <p class="onboard-title">Traga os roteiros do Google Docs</p>
+        <p class="hint">Entre com a sua conta Google e escolha o documento. O app só lê o que você escolher: não altera nada no seu Drive.</p>
+        <button class="btn primary xl block" id="btn-docs-login-ext" type="button">Entrar com o Google</button>
+        <button class="btn xl block" id="btn-docs-login" type="button" hidden>Conta @claudiopaes.com.br</button>
+        <p class="hint small">Dá para conectar mais de uma conta, uma de cada vez.</p>
+        <button class="linkbtn" id="btn-docs-cancel" type="button" hidden>Voltar à lista</button>
+      </div>
+      <div id="docs-main" hidden>
+        <div class="chips acct-row" id="docs-accts" role="radiogroup" aria-label="Conta do Google"></div>
+        <label class="search">
+          <svg class="ic" aria-hidden="true"><use href="#i-search"></use></svg>
+          <span class="sr-only">Buscar documento</span>
+          <input id="docs-q" type="search" placeholder="Buscar pelo nome do documento…" autocomplete="off" enterkeyhint="search">
+        </label>
+        <p class="hint" id="docs-status" aria-live="polite"></p>
+        <button class="btn primary block" id="btn-docs-relogin" type="button" hidden>Entrar de novo</button>
+        <button class="btn primary block" id="btn-docs-choose" type="button" hidden>Escolher no Google Drive</button>
+        <ul class="list" id="docs-list" aria-label="Documentos do Google Docs"></ul>
+        <p class="foot">Documentos de <span id="docs-who">sua conta Google</span>. <button class="linkbtn" id="btn-docs-logout" type="button">Desconectar esta conta</button></p>
+      </div>
+    </div>
+    <div class="overlay" id="tab-picker" hidden role="dialog" aria-modal="true" aria-labelledby="tab-title">
+      <div class="wiz-box tab-box">
+        <h2 class="wiz-title" id="tab-title">Qual guia trazer?</h2>
+        <p class="hint center" id="tab-hint"></p>
+        <ul class="list" id="tab-list" aria-label="Guias do documento"></ul>
+        <div class="wiz-actions"><button class="btn" id="btn-tab-cancel" type="button">Cancelar</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PEDAL ================= -->
+  <section class="view" id="view-pedal" aria-labelledby="pedal-title">
+    <header class="topbar">
+      <button class="btn icon" id="btn-pedal-back" type="button" aria-label="Voltar"><svg class="ic" aria-hidden="true"><use href="#i-back"></use></svg></button>
+      <h1 class="title" id="pedal-title">Pedal</h1>
+    </header>
+    <div class="scrollarea">
+      <div class="pedal-card" id="pedal-card">
+        <div class="pedal-art" aria-hidden="true">
+          <div class="pedal-key" id="pk-left"><span>Voltar</span></div>
+          <div class="pedal-key" id="pk-right"><span>Iniciar / pausar</span></div>
+        </div>
+        <p class="pedal-status" id="pedal-status" aria-live="polite">Pise no pedal para testar.</p>
+        <p class="pedal-mode" id="pedal-mode" hidden></p>
+        <button class="btn primary xl block" id="btn-wizard" type="button">Configurar o pedal em 2 passos</button>
+      </div>
+
+      <h2 class="section-title">O que chegou do pedal</h2>
+      <ol class="feed" id="pedal-feed" aria-live="polite"></ol>
+
+      <details class="adv">
+        <summary>Ajuste avançado: comandos de cada ação</summary>
+        <p class="hint">Cada ação aceita vários comandos (tecla ou deslize). Os deslizes são medidos com o celular em pé, então o pedal funciona igual em qualquer rotação da tela.</p>
+        <div id="mapping-list"></div>
+        <button class="btn block" id="btn-reset-keys" type="button">Restaurar padrão</button>
+        <h3 class="section-title">Detalhe técnico das últimas entradas</h3>
+        <div class="monitor" id="key-monitor"></div>
+      </details>
+
+      <h2 class="section-title">Modo do pedal</h2>
+      <ul class="tips">
+        <li><b>Melhor escolha: modo 3</b> (Page Up / Page Down). Toque rápido no botão Mode do pedal troca o modo; o LED aceso mostra qual é. Os modos 1, 2 e 4 também mandam tecla e funcionam bem.</li>
+        <li><b>Modos 6 e 7 (deslize):</b> o pedal finge um dedo na tela. Funciona aqui, mas com o celular deitado o deslize pode esbarrar nos gestos do Android (voltar, tela inicial).</li>
+        <li><b>Evite o modo 5 (mídia):</b> o celular pode abrir o player e tocar música.</li>
+        <li><b>Segurar o botão Mode</b> liga o envio contínuo (o último LED). Deixe desligado: uma pisada vira várias.</li>
+      </ul>
+
+      <h2 class="section-title">Se o pedal falhar</h2>
+      <ul class="tips">
+        <li><b>Nada chega aqui:</b> o pedal dorme depois de uns 25 minutos parado e a primeira pisada só o acorda. Antes de gravar, pise uma vez e veja a luz acender nesta tela. Luz do pedal piscando = sem conexão: confira o Bluetooth do celular.</li>
+        <li><b>Os dois pedais fazem a mesma coisa:</b> refaça os 2 passos. Se o aviso disser que os dois mandam o mesmo sinal, troque o modo.</li>
+        <li><b>O teclado do celular sumiu:</b> com o pedal em modo de tecla o Android acha que tem um teclado físico. Em Configurações &gt; Gerenciamento geral &gt; Teclado físico, ligue "Mostrar teclado na tela".</li>
+      </ul>
+    </div>
+
+    <div class="overlay" id="wizard" hidden role="dialog" aria-modal="true" aria-labelledby="wiz-title">
+      <div class="wiz-box">
+        <p class="wiz-step" id="wiz-step">Passo 1 de 2</p>
+        <h2 class="wiz-title" id="wiz-title">Pise no pedal da DIREITA</h2>
+        <p class="hint center" id="wiz-hint">Ele vai iniciar e pausar a rolagem.</p>
+        <div class="wiz-art" aria-hidden="true"><div class="pedal-key" id="wk-left"></div><div class="pedal-key" id="wk-right"></div></div>
+        <p class="wiz-got" id="wiz-got" aria-live="assertive"></p>
+        <div class="wiz-actions">
+          <button class="btn" id="btn-wiz-cancel" type="button">Cancelar</button>
+        </div>
+      </div>
+    </div>
+    <div class="overlay" id="capture-overlay" hidden role="dialog" aria-modal="true">
+      <div class="wiz-box">
+        <h2 class="wiz-title">Acione o pedal ou a tecla</h2>
+        <p class="hint center" id="capture-action"></p>
+        <div class="wiz-actions"><button class="btn" id="btn-capture-cancel" type="button">Cancelar</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= AJUSTES ================= -->
+  <div class="sheet" id="panel-settings" hidden>
+    <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="set-title">
+      <header class="sheet-head">
+        <h2 id="set-title">Ajustes</h2>
+        <button class="btn icon" id="btn-settings-close" type="button" aria-label="Fechar ajustes"><svg class="ic" aria-hidden="true"><use href="#i-close"></use></svg></button>
       </header>
-      <div class="panel-body">
-        <label class="row"><span>Velocidade <b id="v-speed"></b></span>
-          <input type="range" id="s-speed" min="10" max="300" step="5"></label>
-        <label class="row"><span>Tamanho da fonte <b id="v-font"></b></span>
-          <input type="range" id="s-font" min="24" max="120" step="1"></label>
-        <label class="row"><span>Altura de linha <b id="v-line"></b></span>
-          <input type="range" id="s-line" min="100" max="220" step="5"></label>
-        <label class="row"><span>Margem lateral <b id="v-margin"></b></span>
-          <input type="range" id="s-margin" min="0" max="30" step="1"></label>
-        <label class="row"><span>Salto de avanco e retorno <b id="v-jump"></b></span>
-          <input type="range" id="s-jump" min="50" max="800" step="25"></label>
+      <div class="sheet-body">
 
-        <div class="row-split">
-          <span>Cor do texto</span>
-          <div class="chips" id="s-color">
-            <button class="chip" data-color="#ffffff">Branco</button>
-            <button class="chip" data-color="#ffd44d">Amarelo</button>
-            <button class="chip" data-color="#7ef29a">Verde</button>
+        <h3 class="section-title">Velocidade</h3>
+        <div class="stepper" data-key="wpm" data-step="5" data-min="60" data-max="260" data-unit="ppm" data-label="Velocidade"></div>
+        <div class="chips" id="s-presets" role="group" aria-label="Velocidades prontas">
+          <button class="chip" type="button" data-wpm="110" aria-label="Calma, 110 palavras por minuto"><b>110</b><small>calma</small></button>
+          <button class="chip" type="button" data-wpm="130" aria-label="Natural, 130 palavras por minuto"><b>130</b><small>natural</small></button>
+          <button class="chip" type="button" data-wpm="150" aria-label="Ágil, 150 palavras por minuto"><b>150</b><small>ágil</small></button>
+          <button class="chip" type="button" data-wpm="170" aria-label="Rápida, 170 palavras por minuto"><b>170</b><small>rápida</small></button>
+        </div>
+        <p class="hint">Em palavras por minuto: muda a fonte e a velocidade de leitura continua a mesma.</p>
+
+        <h3 class="section-title">Texto</h3>
+        <div class="stepper" data-key="font" data-step="2" data-min="24" data-max="140" data-unit="px" data-label="Tamanho"></div>
+        <div class="stepper" data-key="line" data-step="5" data-min="100" data-max="220" data-unit="%" data-label="Entrelinha"></div>
+        <div class="stepper" data-key="margin" data-step="1" data-min="0" data-max="30" data-unit="%" data-label="Margem lateral"></div>
+        <div class="field">
+          <span class="field-label">Alinhamento</span>
+          <div class="chips" id="s-talign" role="radiogroup" aria-label="Alinhamento do texto">
+            <button class="chip" type="button" role="radio" data-align="left">Esquerda</button>
+            <button class="chip" type="button" role="radio" data-align="center">Centro</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="field-label">Fonte</span>
+          <div class="chips" id="s-family" role="radiogroup" aria-label="Fonte">
+            <button class="chip" type="button" role="radio" data-family="hyper">Legível</button>
+            <button class="chip" type="button" role="radio" data-family="system">Sistema</button>
+            <button class="chip" type="button" role="radio" data-family="serif">Serifa</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="field-label">Cor</span>
+          <div class="swatches" id="s-color" role="radiogroup" aria-label="Cor do texto">
+            <button class="swatch" type="button" role="radio" data-color="#ffffff" style="--c:#ffffff" aria-label="Branco"></button>
+            <button class="swatch" type="button" role="radio" data-color="#f4ebd0" style="--c:#f4ebd0" aria-label="Marfim"></button>
+            <button class="swatch" type="button" role="radio" data-color="#ffd166" style="--c:#ffd166" aria-label="Amarelo"></button>
+            <button class="swatch" type="button" role="radio" data-color="#8cf5a8" style="--c:#8cf5a8" aria-label="Verde"></button>
           </div>
         </div>
 
-        <div class="row-split">
-          <span>Contagem regressiva</span>
-          <div class="chips" id="s-countdown">
-            <button class="chip" data-cd="0">Sem</button>
-            <button class="chip" data-cd="3">3 s</button>
-            <button class="chip" data-cd="5">5 s</button>
+        <h3 class="section-title">Leitura</h3>
+        <div class="field">
+          <span class="field-label">Linha de leitura</span>
+          <div class="chips" id="s-guidepos" role="radiogroup" aria-label="Altura da linha de leitura">
+            <button class="chip" type="button" role="radio" data-pos="22">Alto</button>
+            <button class="chip" type="button" role="radio" data-pos="33">Terço</button>
+            <button class="chip" type="button" role="radio" data-pos="45">Centro</button>
+            <button class="chip" type="button" role="radio" data-pos="75">Baixo</button>
           </div>
         </div>
+        <div class="field">
+          <span class="field-label">Contagem</span>
+          <div class="chips" id="s-countdown" role="radiogroup" aria-label="Contagem regressiva">
+            <button class="chip" type="button" role="radio" data-cd="0">Sem</button>
+            <button class="chip" type="button" role="radio" data-cd="3">3 s</button>
+            <button class="chip" type="button" role="radio" data-cd="5">5 s</button>
+          </div>
+        </div>
+        <label class="switch"><span>Mostrar a linha de leitura</span><input type="checkbox" role="switch" id="s-guide"></label>
+        <label class="switch"><span>Escurecer o texto já lido</span><input type="checkbox" role="switch" id="s-dimread"></label>
+        <label class="switch"><span>Pausar no fim de cada parágrafo<small>Para gravar por blocos</small></span><input type="checkbox" role="switch" id="s-autopause"></label>
+        <label class="switch"><span>Acompanhar a minha voz<small>Rola só enquanto você fala e espera nas pausas. Sem internet.</small></span><input type="checkbox" role="switch" id="s-follow"></label>
 
-        <label class="switch"><span>Espelhar na horizontal (espelho do Parrot)</span><input type="checkbox" id="s-mirror-h"></label>
-        <label class="switch"><span>Espelhar na vertical</span><input type="checkbox" id="s-mirror-v"></label>
-        <label class="switch"><span>Guia de leitura</span><input type="checkbox" id="s-guide"></label>
-        <label class="switch"><span>Manter a tela acesa</span><input type="checkbox" id="s-wake"></label>
-        <label class="switch"><span>Tela cheia ao apresentar</span><input type="checkbox" id="s-fullscreen"></label>
+        <h3 class="section-title">Gravação</h3>
+        <label class="switch"><span>Gravar vídeo com o celular<small>Para gravar sozinha. O pedal da direita começa a gravar; cada bloco (# título) vira um vídeo.</small></span><input type="checkbox" role="switch" id="s-record"></label>
+        <div class="field">
+          <span class="field-label">Câmera</span>
+          <div class="chips" id="s-camfacing" role="radiogroup" aria-label="Câmera">
+            <button class="chip" type="button" role="radio" data-facing="user">Frontal</button>
+            <button class="chip" type="button" role="radio" data-facing="environment">Traseira</button>
+          </div>
+        </div>
+        <p class="hint">Frontal: ela lê na tela do celular; use a linha de leitura no alto, perto da lente. Traseira: imagem melhor, lê no monitor ao lado da lente.</p>
+        <div class="field">
+          <span class="field-label">Qualidade</span>
+          <div class="chips" id="s-recq" role="radiogroup" aria-label="Qualidade do vídeo">
+            <button class="chip" type="button" role="radio" data-q="4k">4K</button>
+            <button class="chip" type="button" role="radio" data-q="1080">Full HD</button>
+          </div>
+        </div>
+        <label class="switch"><span>Mostrar a imagem da câmera<small>Para se enquadrar antes de gravar</small></span><input type="checkbox" role="switch" id="s-campreview"></label>
+        <div class="field">
+          <span class="field-label">Onde fica a imagem</span>
+          <div class="chips" id="s-campos" role="radiogroup" aria-label="Onde fica a imagem da câmera">
+            <button class="chip" type="button" role="radio" data-cpos="top">No alto</button>
+            <button class="chip" type="button" role="radio" data-cpos="line">Acima da linha</button>
+            <button class="chip" type="button" role="radio" data-cpos="corner">No canto</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="field-label">Tela do celular ao gravar</span>
+          <div class="chips" id="s-recscreen" role="radiogroup" aria-label="Tela do celular ao gravar">
+            <button class="chip" type="button" role="radio" data-scr="portrait-primary">Em pé</button>
+            <button class="chip" type="button" role="radio" data-scr="portrait-secondary">Em pé, invertida</button>
+            <button class="chip" type="button" role="radio" data-scr="landscape-primary">Deitada</button>
+            <button class="chip" type="button" role="radio" data-scr="landscape-secondary">Deitada, invertida</button>
+            <button class="chip" type="button" role="radio" data-scr="livre">Livre</button>
+          </div>
+        </div>
+        <p class="hint">Com monitor ao lado da lente (Ulanzi), use deitada: a tela aparece inteira nele. Invertida = celular ou monitor de cabeça para baixo.</p>
+        <div class="field">
+          <span class="field-label">Girar a imagem</span>
+          <div class="chips" id="s-camrot" role="radiogroup" aria-label="Girar a imagem da câmera">
+            <button class="chip" type="button" role="radio" data-rot="0">0°</button>
+            <button class="chip" type="button" role="radio" data-rot="90">90°</button>
+            <button class="chip" type="button" role="radio" data-rot="180">180°</button>
+            <button class="chip" type="button" role="radio" data-rot="270">270°</button>
+          </div>
+        </div>
+        <p class="hint">Gire até a imagem do canto ficar em pé: o vídeo sai girado igual.</p>
+        <label class="switch"><span>Subir os vídeos para o Google Drive<small>Pasta “Gravações do Prompter”, uma por dia. Fica também uma cópia na pasta Download do celular.</small></span><input type="checkbox" role="switch" id="s-drive"></label>
 
-        <h3 class="section-title">Comando de voz</h3>
+        <h3 class="section-title">Espelho</h3>
+        <label class="switch"><span>Espelhar na horizontal<small>Teleprompter com vidro (Parrot)</small></span><input type="checkbox" role="switch" id="s-mirror-h"></label>
+        <label class="switch"><span>Espelhar na vertical</span><input type="checkbox" role="switch" id="s-mirror-v"></label>
+
+        <h3 class="section-title">Tela</h3>
+        <label class="switch"><span>Manter a tela acesa</span><input type="checkbox" role="switch" id="s-wake"></label>
+        <label class="switch"><span>Tela cheia ao apresentar</span><input type="checkbox" role="switch" id="s-fullscreen"></label>
+        <label class="switch"><span>Vibrar ao tocar nos botões</span><input type="checkbox" role="switch" id="s-haptics"></label>
+
+        <h3 class="section-title">Pedal e voz</h3>
+        <button class="btn block" id="btn-settings-pedal" type="button"><svg class="ic" aria-hidden="true"><use href="#i-pedal"></use></svg><span>Configurar o pedal</span></button>
         <p class="hint" id="voice-support"></p>
-        <p class="hint">Comandos: iniciar, comecar, vai, pausar, parar, pera, mais rapido, acelera, mais devagar, devagar, voltar, do inicio, recomecar. Fale a frase sozinha, sem emendar no texto do roteiro.</p>
+        <p class="hint">Comandos de voz (botão de microfone na tela de leitura), falados sozinhos: iniciar, pausar, mais rápido, mais devagar, voltar, recomeçar. No Android o reconhecimento pode dar um bipe quando religa; para gravar, prefira o pedal.</p>
 
-        <button class="btn block" id="btn-settings-pedal">
-          <svg class="ic"><use href="#i-pedal"></use></svg><span>Configurar pedal</span>
-        </button>
+        <h3 class="section-title">Dados</h3>
+        <div class="row-2">
+          <button class="btn" id="btn-backup" type="button">Fazer backup</button>
+          <button class="btn" id="btn-restore" type="button">Restaurar backup</button>
+        </div>
         <p class="hint" id="app-version"></p>
       </div>
     </div>
   </div>
 
+  <!-- ================= COMO VAI GRAVAR ================= -->
+  <div class="overlay" id="mode-picker" hidden role="dialog" aria-modal="true" aria-labelledby="mode-title">
+    <div class="wiz-box mode-box">
+      <h2 class="wiz-title" id="mode-title">Como vai gravar?</h2>
+      <div class="mode-list">
+        <button class="mode-card" type="button" data-mode="front">
+          <svg class="ic" aria-hidden="true"><use href="#i-selfie"></use></svg>
+          <span><b>Câmera da frente</b><small>Lê na tela do celular, que fica de cabeça para baixo. Para gravar sozinha.</small></span>
+        </button>
+        <button class="mode-card" type="button" data-mode="rear">
+          <svg class="ic" aria-hidden="true"><use href="#i-camera"></use></svg>
+          <span><b>Câmera traseira</b><small>Imagem melhor. Celular em pé, tela virada para quem opera.</small></span>
+        </button>
+        <button class="mode-card" type="button" data-mode="plain">
+          <svg class="ic" aria-hidden="true"><use href="#i-doc"></use></svg>
+          <span><b>Só ler, sem gravar</b><small>O teleprompter de sempre.</small></span>
+        </button>
+      </div>
+      <div class="wiz-actions"><button class="btn" id="btn-mode-cancel" type="button">Cancelar</button></div>
+    </div>
+  </div>
+
+  <!-- ================= ENVIO PENDENTE ================= -->
+  <div class="overlay" id="up-leave" hidden role="dialog" aria-modal="true" aria-labelledby="up-leave-title">
+    <div class="wiz-box">
+      <div class="up-leave-art" aria-hidden="true"><svg class="ic"><use href="#i-cloud-up"></use></svg></div>
+      <h2 class="wiz-title" id="up-leave-title">Ainda subindo para o Drive</h2>
+      <p class="hint center" id="up-leave-text"></p>
+      <div class="wiz-actions up-leave-actions">
+        <button class="btn primary" id="btn-up-stay" type="button">Voltar ao prompter</button>
+        <button class="btn" id="btn-up-go" type="button">Sair do prompter</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toast-text"></span><button class="toast-btn" id="toast-btn" type="button" hidden></button></div>
 </div>
 
 <script src="./app.js"></script>
+</body>
+</html>

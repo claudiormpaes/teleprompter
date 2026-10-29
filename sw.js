@@ -1,6 +1,6 @@
 /* Service worker do Teleprompter: cache primeiro, com rede como reserva.
    Suba o valor de V a cada alteracao de arquivo para forcar a atualizacao. */
-const V = 'v5';
+const V = 'v9.1';
 const CACHE = 'teleprompter-' + V;
 
 const ASSETS = [
@@ -12,13 +12,17 @@ const ASSETS = [
   './manifest.webmanifest',
   './icon.svg',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './fonts/atkinson-next.woff2',
+  './fonts/atkinson-next-italic.woff2',
+  './fonts/space-grotesk.woff2'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE)
-      .then((cache) => cache.addAll(ASSETS))
+      // cache: 'reload' fura o cache HTTP do GitHub Pages (max-age=600): versao nova nunca grava arquivo velho
+      .then((cache) => cache.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' }))))
       .then(() => self.skipWaiting())
   );
 });
