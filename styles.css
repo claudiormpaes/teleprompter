@@ -454,6 +454,10 @@ body{
 .snd-vu i{display:block;height:100%;background:currentColor;transform-origin:left center;transform:scaleX(0);transition:transform .08s linear}
 .snd-alert[data-st=ok]{background:rgba(0,0,0,.78);border-color:var(--ok);color:var(--ok)}
 .snd-alert[data-st=wait]{background:rgba(0,0,0,.78);border-color:rgba(255,255,255,.35);color:var(--fg-dim)}
+/* camera desligada por ociosidade (v9.4): aviso calmo, sem medidor, titulo menor que quebra linha */
+.snd-alert[data-st=nap]{background:rgba(0,0,0,.82);border-color:rgba(255,255,255,.35);color:var(--fg)}
+.snd-alert[data-st=nap] b{font-size:clamp(24px,7vw,40px);white-space:normal}
+.snd-alert[data-st=nap] .snd-vu{display:none}
 .snd-alert[data-st=low]{background:var(--accent);color:var(--accent-ink)}
 .snd-alert[data-st=low] .snd-vu{background:rgba(0,0,0,.18)}
 .snd-alert[data-st=dead]{animation:sndpulse 1s steps(2,jump-none) infinite}

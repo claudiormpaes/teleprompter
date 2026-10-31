@@ -5,10 +5,11 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v9.3';
+  var APP_VERSION = 'v9.4';
   var K_SCRIPTS = 'tp.scripts';
   var K_SETTINGS = 'tp.settings';
   var K_KEYS = 'tp.keys2';          // v6: deslizes passaram a ser medidos com o celular em pe
+  var K_PEDAL = 'tp.pedalUsed';     // v9.4: este aparelho tem pedal de verdade (ver hasPedal)
 
   var $ = function (sel) { return document.querySelector(sel); };
   var el = function (tag, cls, txt) {
@@ -194,6 +195,16 @@
     if (!settings.haptics || !navigator.vibrate) return;
     safe(function () { navigator.vibrate(ms || 8); });
   }
+
+  /* Pedal de verdade neste aparelho (v9.4): assistente do pedal concluido, comando escolhido na mao,
+     toque do pedal aprendido (modo de deslize) ou tecla do pedal que ja chegou. Sem isso os avisos
+     mandam tocar na tela, que funciona sempre (a Consuelo grava sem pedal). "tp.pedalSetupSeen" nao
+     serve: so diz que o convite do pedal foi visto. Deslize solto nao conta: dedo rapido parece pedal. */
+  var pedalUsed = !!Store.read(K_PEDAL, false);
+  function pedalSeen() { if (!pedalUsed) { pedalUsed = true; Store.write(K_PEDAL, true); } }
+  function hasPedal() { return pedalUsed || !!(Gestures && Gestures.profile); }
+  // texto do aviso: "pise…" com pedal, "toque…" sem
+  function cue(withPedal, withTouch) { return hasPedal() ? withPedal : withTouch; }
 
   /* ============================ Aviso (toast) ============================ */
 
@@ -1884,7 +1895,8 @@
       if (Rec.enabled()) {
         Flip.start();      // antes do prepare: enquanto decide se o celular esta virado, a tela nao inverte
         Rec.prepare();
-        Prompter.flash('i-rec', 'Pise para gravar');
+        Rec.poke();        // abrir (trocar de modo reabre) zera a contagem da camera ociosa
+        Prompter.flash('i-rec', cue('Pise para gravar', 'Toque na tela para gravar'));
         // o login do Google sai da pagina: so antes de gravar, nunca no meio (o video em andamento se perderia)
         if (settings.driveUpload && !GDocs.canWrite() && navigator.onLine) {
           var sid = s.id;
@@ -2045,8 +2057,10 @@
       var atEnd = !p && Prompter.ended;
       var pill = $('#pause-pill');
       pill.hidden = p || Prompter.pendingPlay;
-      pill.lastChild.textContent = atEnd ? 'Fim' : Rec.enabled() && !Rec.active() ? 'Pise para gravar' : 'Pausado';
+      pill.lastChild.textContent = atEnd ? 'Fim' : Rec.napped ? 'Câmera desligada'
+        : Rec.enabled() && !Rec.active() ? cue('Pise para gravar', 'Toque na tela para gravar') : 'Pausado';
       if (p) Prompter.scheduleHide(); else if (!Prompter.quiet) Prompter.showUI();
+      Rec.poke();          // play, pausa, fim, contagem: a camera ociosa conta a partir daqui
     },
 
     // controles somem durante a leitura; o vidro reflete so o texto
@@ -2186,7 +2200,7 @@
             Prompter.quiet = false;
             Prompter.cur = 0;
             Prompter.jumpTo(Prompter.firstParaAfter(Prompter.marks[sec].top), 260);
-            Prompter.flash('i-rec', 'Fim do bloco: pise para o próximo');
+            Prompter.flash('i-rec', cue('Fim do bloco: pise para o próximo', 'Fim do bloco: toque para o próximo'));
           }
           Prompter.lastSec = sec;
         }
@@ -2411,6 +2425,10 @@
     stopTimer: 0,
     saving: 0,          // videos sendo salvos (Download + fila do Drive)
     savedAt: 0,
+    IDLE_MS: 120000,    // camera ociosa: parada esse tempo sem ninguem mexer, desliga (ver nap)
+    idleAt: 0,          // ultima interacao (ou ultima vez que havia algo acontecendo)
+    idleTimer: 0,
+    napped: false,      // desligada por ociosidade: a faixa do som avisa ate religar
 
     enabled: function () { return !!settings.record; },
     active: function () { return !!Rec.mr; },
@@ -2438,6 +2456,7 @@
         return;
       }
       Rec.starting = true;
+      if (Rec.napped) { Rec.napped = false; Prompter.updateUI(); Sound.paint(); }   // religando: tira o aviso
       var gen = ++Rec.gen, big = Rec.big();
       navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: settings.camFacing === 'user' ? 'user' : 'environment' }, width: { ideal: big ? 3840 : 1920 }, height: { ideal: big ? 2160 : 1080 }, frameRate: { ideal: 30 } },
@@ -2452,6 +2471,7 @@
         var v = $('#cam-video');
         v.srcObject = stream;
         safe(function () { return v.play(); });
+        Rec.poke();                     // camera pronta: a contagem da ociosa comeca do zero
         Rec.paint();
       }).catch(function (e) {
         if (gen !== Rec.gen) return;
@@ -2463,17 +2483,57 @@
       });
     },
 
-    // desliga tudo (sair do prompter, desligar a gravacao); o que estava gravando e salvo
-    release: function () {
-      Rec.gen++;
+    // desliga tudo (sair do prompter, desligar a gravacao); o que estava gravando e salvo.
+    // keepScreen: a camera so cochilou (nap), a tela continua travada na posicao de gravar
+    release: function (keepScreen) {
+      Rec.gen++;                        // pedido de camera ou de microfone em andamento chega velho e e descartado
       Rec.starting = false;
       Rec.stop();
-      Sound.detach();
+      Sound.detach();                   // antes de parar as faixas: o medidor nao ve o microfone sumir (sem alarme, sem pedir de novo)
       if (Rec.stream) Rec.stream.getTracks().forEach(function (t) { t.removeEventListener('ended', Rec.lost); safe(function () { t.stop(); }); });
       Rec.stream = null;
+      clearTimeout(Rec.idleTimer);
+      Rec.idleTimer = 0;
+      Rec.napped = false;
       $('#cam-video').srcObject = null;
-      if (screen.orientation && screen.orientation.unlock) safe(function () { screen.orientation.unlock(); });
+      if (keepScreen !== true && screen.orientation && screen.orientation.unlock) safe(function () { screen.orientation.unlock(); });
       Rec.paint();
+    },
+
+    /* ---- camera ociosa (v9.4) ----
+       31/10: o S23 Ultra da Consuelo esquentava. Com a gravacao ligada, camera e microfone ficavam
+       ligados o tempo todo, inclusive parados em "Toque para gravar" e depois de gravar. Parada assim
+       por IDLE_MS sem nenhum toque, tecla, pedal ou rolagem: desliga camera e microfone. A tela
+       continua aberta e a faixa do som avisa; a proxima pisada ou toque religa (Rec.begin) e so a
+       seguinte grava. Com a gravacao em andamento (inclusive entre blocos) nunca desliga. */
+    busy: function () {
+      return Rec.active() || Rec.starting || Prompter.playing || Prompter.pendingPlay || Prompter.cur !== 0 || !!Prompter.anim || Player.isOpen();
+    },
+    // interacao ou mudanca de estado: a contagem recomeca
+    poke: function () {
+      Rec.idleAt = now();
+      Rec.armIdle(Rec.IDLE_MS);
+    },
+    armIdle: function (ms) {
+      clearTimeout(Rec.idleTimer);
+      Rec.idleTimer = 0;
+      if (Rec.stream && Prompter.isOpen()) Rec.idleTimer = setTimeout(Rec.idleCheck, Math.max(50, ms));
+    },
+    idleCheck: function () {
+      Rec.idleTimer = 0;
+      if (!Rec.stream || !Prompter.isOpen()) return;
+      var t = now(), busy = Rec.busy();
+      if (busy) Rec.idleAt = t;                                     // algo acontecendo: conta de novo
+      else if (t - Rec.idleAt >= Rec.IDLE_MS) { Rec.nap(); return; }
+      // ocupado, olha de novo logo (uma mudanca que nao avisou erra no maximo 5 s); parado, no fim do prazo
+      Rec.armIdle(busy ? Math.min(Rec.IDLE_MS, 5000) : Rec.idleAt + Rec.IDLE_MS - t);
+    },
+    nap: function () {
+      if (!Rec.stream || Rec.busy() || !Prompter.isOpen()) return;
+      Rec.release(true);                // o mesmo caminho limpo de sair do prompter
+      Rec.napped = true;
+      Rec.paint();                      // faixa: "CAMERA DESLIGADA"
+      Prompter.updateUI();
     },
 
     // a camera caiu (outro app pegou, o sistema desligou): salva o que deu
@@ -2484,13 +2544,14 @@
       Toast.show(was ? 'A câmera desligou no meio. O que foi gravado está salvo.' : 'A câmera desligou.');
     },
 
-    // pedal "iniciar". Devolve true quando a pisada ja foi usada aqui (o texto rola depois da contagem).
+    // pedal "iniciar" (ou toque na tela, ou play). Devolve true quando a pisada ja foi usada aqui (o texto rola depois da contagem).
     begin: function () {
       clearTimeout(Rec.stopTimer);
       Sound.wake();                     // a pisada e um gesto: destrava o medidor se o navegador o deixou parado
       if (!Rec.stream) {
-        Prompter.flash('i-rec', Rec.starting ? 'Ligando a câmera…' : 'Câmera desligada', true);
+        // camera desligada (ociosa ou que falhou): esta pisada so a liga, a seguinte grava
         Rec.prepare();
+        Prompter.flash('i-rec', Rec.starting ? 'Ligando a câmera…' : 'Câmera desligada', true);
         return true;
       }
       if (Rec.active()) {
@@ -2554,6 +2615,7 @@
       Rec.mr = null;
       if (mr) Rec.savedAt = now();
       if (mr && mr.state !== 'inactive') safe(function () { mr.stop(); });
+      if (mr) Rec.poke();               // gravacao acabou: a camera ociosa conta a partir daqui
       Rec.paint();
     },
     // fim do roteiro: um respiro gravado antes de fechar o arquivo
@@ -2761,14 +2823,19 @@
 
     paint: function () {
       var on = !!Rec.stream && Prompter.isOpen(), rec = Rec.active();
-      var st = on ? Sound.state : 'off';
+      // camera desligada por ociosidade: a mesma faixa avisa, calma (nao e alarme)
+      var st = on ? Sound.state : Rec.napped && Prompter.isOpen() ? 'nap' : 'off';
       if (st === 'ok' && !Sound.heard) st = 'wait';                  // nao diz "SOM OK" antes de ouvir algo
       var box = $('#snd-alert');
       box.hidden = st === 'off';
       box.dataset.st = st;
       if (st !== 'off') {
         var title, sub = '';
-        if (st === 'wait') title = 'OUVINDO…';
+        if (st === 'nap') {
+          title = 'CÂMERA DESLIGADA';
+          sub = 'Para o celular descansar. ' + cue('Pise para ligar a câmera.', 'Toque na tela para ligar a câmera.');
+        }
+        else if (st === 'wait') title = 'OUVINDO…';
         else if (st === 'ok') title = 'SOM OK';
         else if (st === 'low') { title = 'SOM BAIXO'; sub = 'Não estou ouvindo a voz. O microfone está ligado e perto?'; }
         else {
@@ -2779,7 +2846,7 @@
         }
         $('#snd-title').textContent = title;
         $('#snd-sub').textContent = sub;
-        $('#snd-icon').setAttribute('href', st === 'dead' ? '#i-mic-off' : '#i-mic');
+        $('#snd-icon').setAttribute('href', st === 'dead' ? '#i-mic-off' : st === 'nap' ? '#i-camera' : '#i-mic');
       }
       var b = $('#rec-badge');
       b.classList.toggle('nosound', st === 'dead');
@@ -2816,6 +2883,7 @@
       safe(function () { v.load(); });
       $('#player').hidden = true;
       Prompter.showUI();
+      Rec.poke();
     },
     toggle: function () {
       var v = $('#player-video');
@@ -3119,6 +3187,11 @@
     safe(Prompter.requestWakeLock);
     Prompter.ensureLoop();
     Voice.resumeIfWanted();
+    Rec.poke();          // voltou ao app: a pessoa esta ali
+  });
+  // camera ociosa: qualquer toque, tecla, pedal ou rolagem zera a contagem (antes de tudo, sem bloquear nada)
+  ['pointerdown', 'touchstart', 'keydown', 'wheel'].forEach(function (k) {
+    window.addEventListener(k, function () { if (Prompter.isOpen()) Rec.poke(); }, { capture: true, passive: true });
   });
 
   /* ============================ Entrada: pedal, teclado, toque ============================ */
@@ -3143,6 +3216,8 @@
       Pedal.blink();
       var a = actionForTokens(tokens);
       rec.action = a ? a.id : null;
+      // tecla com comando = pedal (no celular nao ha teclado); tecla de midia pode ser o fone de ouvido
+      if (a && rec.kind === 'key' && !/^Media/.test(rec.code || rec.key || '')) pedalSeen();
       Pedal.record(rec);
       if (Input.capture) { if (ev && ev.cancelable) ev.preventDefault(); Input.capture(tokens, rec); return true; }
       if (current === 'pedal' && a) { if (ev && ev.cancelable) ev.preventDefault(); return true; }
@@ -3608,6 +3683,7 @@
       $('#capture-overlay').hidden = false;
       Input.capture = function (tokens) {
         Pedal.cancelCapture();
+        pedalSeen();
         Pedal.assign(action.id, [tokens[0]]);
         Pedal.renderMapping();
         Toast.show(tokenLabel(tokens[0]) + ' agora faz: ' + action.name + '.');
@@ -3707,6 +3783,7 @@
       $('#wk-right').classList.remove('expect');
       $('#wk-left').classList.remove('expect');
       if (ok && w) {
+        pedalSeen();
         Pedal.renderMapping();
         Toast.show('Pedal configurado. Pise para testar: a luz acende no lado certo.');
       }
@@ -4162,6 +4239,7 @@
       var t = now();
       if (act === Voice.lastAct && t - Voice.lastAt < 1500) return;
       Voice.lastAct = act; Voice.lastAt = t;
+      Rec.poke();                       // comando de voz tambem e interacao (camera ociosa)
       Prompter.quiet = true;
       try {
         if (act === 'play') Prompter.play();
