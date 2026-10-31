@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v9.2';
+  var APP_VERSION = 'v9.3';
   var K_SCRIPTS = 'tp.scripts';
   var K_SETTINGS = 'tp.settings';
   var K_KEYS = 'tp.keys2';          // v6: deslizes passaram a ser medidos com o celular em pe
@@ -54,7 +54,7 @@
     haptics: true,
     record: false,      // o proprio app grava com a camera do celular
     camFacing: 'environment',   // environment (traseira, a melhor imagem) | user (frontal, le na tela do proprio celular)
-    recQuality: '4k',   // 4k | 1080
+    recQuality: '1080', // 4k | 1080 (o 4K esquenta o celular: so para quem escolher)
     camPreview: true,   // imagem da camera no canto, para enquadrar
     camRotate: 0,       // giro da imagem (graus, horario), no canto e no arquivo: o celular pode estar de cabeca para baixo
     driveUpload: true,  // cada video sobe sozinho para o Google Drive (alem da copia na pasta Download)
@@ -108,6 +108,9 @@
 
   var settings = Object.assign({}, DEFAULT_SETTINGS, Store.read(K_SETTINGS, {}));
   delete settings.speed; delete settings.jump;          // campos da v5 (px/s), sem uso agora
+  /* v9.3 (31/10/2026): gravar em 4K esquentava o celular de quem recebeu o app. No app publicado,
+     quem nunca tocou na escolha de qualidade passa a gravar em Full HD; quem escolher 4K, fica no 4K. */
+  if (!settings.recQualityPicked && settings.recQuality === '4k' && /\.github\.io$/.test(location.hostname)) settings.recQuality = '1080';
   var keymap = Object.assign(defaultKeys(), Store.read(K_KEYS, {}));
   var scripts = Store.read(K_SCRIPTS, null);
 
@@ -2001,11 +2004,17 @@
       $('#scroller').style.transform = 'translate3d(0,' + (-Prompter.offset).toFixed(2) + 'px,0)';
       var pct = clamp(Prompter.offset / Prompter.maxOffset, 0, 1);
       $('#progress-bar').style.transform = 'scaleX(' + pct.toFixed(4) + ')';
+      // a barra de posicao muda largura (refaz o layout): com os controles escondidos, nao mexe nela
+      if (!Prompter.uiHidden()) Prompter.paintScrub(pct);
+    },
+    paintScrub: function (pct) {
+      if (pct == null) pct = clamp(Prompter.offset / Prompter.maxOffset, 0, 1);
       $('#scrub-fill').style.width = (pct * 100).toFixed(2) + '%';
       $('#scrub-knob').style.left = (pct * 100).toFixed(2) + '%';
     },
     updateMeta: function (force) {
       var t = now();
+      if (!force && Prompter.uiHidden()) return;      // ninguem ve: atualiza quando os controles voltarem
       if (!force && t - Prompter.metaAt < 250) return;
       Prompter.metaAt = t;
       var n = Prompter.paras.length;
@@ -2043,7 +2052,9 @@
     // controles somem durante a leitura; o vidro reflete so o texto
     showUI: function () {
       clearTimeout(Prompter.hideTimer);
+      var was = Prompter.uiHidden();
       VIEWS.prompter.classList.remove('ui-hidden');
+      if (was && Prompter.isOpen()) { Prompter.paintScrub(); Prompter.updateMeta(true); }
       if (Prompter.playing) Prompter.scheduleHide();
     },
     scheduleHide: function () {
@@ -2085,7 +2096,20 @@
     tick: function (t) {
       if (!Prompter.isOpen()) { Prompter.raf = 0; return; }
       Prompter.raf = requestAnimationFrame(Prompter.tick);
+      /* no maximo ~60 quadros por segundo: tela de 90/120 Hz desenhando o dobro so esquenta o celular
+         (a velocidade nao muda: o passo usa o tempo real entre quadros) */
+      if (Prompter.lastT && t - Prompter.lastT < Prompter.MIN_FRAME) return;
       try { Prompter.step(t); } catch (e) { /* um quadro ruim nao derruba a rolagem */ }
+      // parado e sem nada se mexendo: o laco dorme; play, salto, contagem e a volta ao app o acordam (ensureLoop)
+      if (Prompter.idle()) {
+        cancelAnimationFrame(Prompter.raf);
+        Prompter.raf = 0;
+        Prompter.updateMeta(true);
+      }
+    },
+    MIN_FRAME: 14,
+    idle: function () {
+      return !Prompter.playing && !Prompter.pendingPlay && !Prompter.anim && Prompter.cur === 0 && !Follow.active();
     },
     step: function (t) {
       if (!Prompter.lastT) Prompter.lastT = t;
@@ -3855,6 +3879,9 @@
       chips('#s-guidepos', 'pos', 'guidePos', true);
       chips('#s-countdown', 'cd', 'countdown', true);
       chips('#s-recq', 'q', 'recQuality', false);
+      $('#s-recq').addEventListener('click', function (ev) {
+        if (ev.target.closest('[data-q]') && !settings.recQualityPicked) { settings.recQualityPicked = true; saveSettings(); }
+      });
       chips('#s-camrot', 'rot', 'camRotate', true);
       chips('#s-recscreen', 'scr', 'recScreen', false);
       chips('#s-campos', 'cpos', 'camPos', false);
