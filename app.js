@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v9.4';
+  var APP_VERSION = 'v9.5';
   var K_SCRIPTS = 'tp.scripts';
   var K_SETTINGS = 'tp.settings';
   var K_KEYS = 'tp.keys2';          // v6: deslizes passaram a ser medidos com o celular em pe
@@ -112,6 +112,11 @@
   /* v9.3 (31/10/2026): gravar em 4K esquentava o celular de quem recebeu o app. No app publicado,
      quem nunca tocou na escolha de qualidade passa a gravar em Full HD; quem escolher 4K, fica no 4K. */
   if (!settings.recQualityPicked && settings.recQuality === '4k' && /\.github\.io$/.test(location.hostname)) settings.recQuality = '1080';
+  /* v9.5: fora dos aparelhos da Robertha (app servido do PC, localhost), antes da primeira gravacao o app
+     pergunta se os videos sobem tambem para o Drive (SaveAsk) e guarda cada video na pasta PROMPTER da
+     Galeria (Folder). Instalacao nova comeca sem Drive ate a resposta. Nos da Robertha nada muda. */
+  var LOCALHOST = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  if (!LOCALHOST && !settings.saveAsked && !('driveUpload' in (Store.read(K_SETTINGS, null) || {}))) settings.driveUpload = false;
   var keymap = Object.assign(defaultKeys(), Store.read(K_KEYS, {}));
   var scripts = Store.read(K_SCRIPTS, null);
 
@@ -1334,7 +1339,17 @@
         Up.run();
       }, function () {
         Up.adding--;
-        Toast.show('Não consegui pôr o vídeo na fila do Drive. Ele ficou na pasta Download do celular.');
+        Toast.show('Não consegui pôr o vídeo na fila do Drive. Ele ficou salvo no celular.');
+      });
+    },
+    /* "Nao, so no celular" (v9.5): a fila do Drive e copia repetida. Rec.save sempre guarda o video no
+       celular (pasta PROMPTER ou Download) antes do Up.add; aqui so se libera o espaco do IndexedDB. */
+    clear: function () {
+      return Up.tx('readwrite', function (fs, ms) { fs.clear(); ms.clear(); }).then(function () {
+        Up.items = [];
+        Up.prog = {};
+        Up.batchDone = 0;
+        Up.paint(true);
       });
     },
 
@@ -1896,6 +1911,7 @@
         Flip.start();      // antes do prepare: enquanto decide se o celular esta virado, a tela nao inverte
         Rec.prepare();
         Rec.poke();        // abrir (trocar de modo reabre) zera a contagem da camera ociosa
+        Folder.check();    // licenca da pasta PROMPTER: o primeiro toque sabe se precisa pedir
         Prompter.flash('i-rec', cue('Pise para gravar', 'Toque na tela para gravar'));
         // o login do Google sai da pagina: so antes de gravar, nunca no meio (o video em andamento se perderia)
         if (settings.driveUpload && !GDocs.canWrite() && navigator.onLine) {
@@ -2558,6 +2574,7 @@
         if (Prompter.sectionAt(Prompter.baseOffset()) !== Rec.sec) { Rec.stop(); Rec.start(); }   // outro bloco, outro arquivo
         return false;
       }
+      if (Folder.ask()) return true;    // a pasta PROMPTER pede licenca de novo: este toque so libera, o seguinte grava
       if (!Rec.start()) return true;
       Prompter.countdownThenPlay();
       return true;
@@ -2624,9 +2641,18 @@
       Rec.stopTimer = setTimeout(function () { if (!Prompter.playing) Rec.stop(); }, ms);
     },
 
+    // copia na pasta Download do celular (o caminho de sempre e a reserva da pasta PROMPTER)
+    download: function (url, name) {
+      var a = el('a');
+      a.href = url; a.download = name; a.hidden = true;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    },
+
     save: function (chunks, type, d, label, rot) {
       if (!chunks.length) return;
-      // ate o video estar na pasta Download e na fila do Drive, a pagina nao sai (login automatico espera)
+      // ate o video estar no celular e na fila do Drive, a pagina nao sai (login automatico espera)
       Rec.saving++;
       var settle = function () { Rec.saving = Math.max(0, Rec.saving - 1); Rec.savedAt = now(); };
       var webm = /webm/.test(type);
@@ -2635,17 +2661,15 @@
       var finish = function (parts) {
         var blob = new Blob(parts, { type: type.split(';')[0] || 'video/mp4' });
         var url = URL.createObjectURL(blob);
-        var a = el('a');
-        a.href = url; a.download = name; a.hidden = true;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
         // a ultima gravacao fica a mao para conferir; a anterior libera a memoria
         if (Rec.last) { var old = Rec.last.url; setTimeout(function () { URL.revokeObjectURL(old); }, 15 * 60 * 1000); }
         Rec.last = { url: url, name: name };
         Rec.paint();       // sem aviso na tela (o Cláudio pediu): a ultima gravacao fica no icone de filme do topo
-        if (settings.driveUpload) Up.add(blob, name, d.getFullYear() + ' ' + pad2(d.getMonth() + 1) + ' ' + pad2(d.getDate())).then(settle, settle);
-        else settle();
+        // primeiro a copia no celular (pasta PROMPTER, ou Download); so depois a fila do Drive (Up.clear conta com isso)
+        Folder.keep(blob, url, name).then(function () {
+          if (settings.driveUpload) Up.add(blob, name, d.getFullYear() + ' ' + pad2(d.getMonth() + 1) + ' ' + pad2(d.getDate())).then(settle, settle);
+          else settle();
+        });
       };
       if (!rot || webm || !chunks[0].arrayBuffer) { finish(chunks); return; }
       chunks[0].arrayBuffer().then(function (buf) {
@@ -2892,6 +2916,199 @@
   };
   $('#btn-player-close').addEventListener('click', Player.close);
 
+  /* ---- pasta PROMPTER na Galeria (v9.5) ----
+     O video ia so para a pasta Download. Agora vai para a pasta PROMPTER, escolhida uma vez no seletor
+     do Android (dentro de Movies ou DCIM, que a Galeria mostra; o app cria a PROMPTER). O endereco da
+     pasta fica no IndexedDB. Sem suporte, seletor cancelado, licenca negada ou erro ao gravar: o video
+     vai para a pasta Download como antes (nunca se perde) e um aviso diz onde ficou. Nos aparelhos da
+     Robertha (localhost) a pasta nao entra: Download como sempre. */
+  var Folder = {
+    NAME: 'PROMPTER',
+    handle: null,       // pasta PROMPTER escolhida
+    perm: '',           // licenca de escrita: granted | prompt | denied ('' = ainda nao conferida)
+    asked: false,       // licenca ja pedida nesta abertura (pede no maximo uma vez)
+    warned: false,      // aviso de "ficou na Download" ja dado nesta abertura
+    pendingWarn: '',    // aviso esperando a gravacao acabar
+    dbp: null,
+
+    supported: function () { return !LOCALHOST && typeof window.showDirectoryPicker === 'function'; },
+    active: function () { return !LOCALHOST && !!Folder.handle; },
+
+    db: function () {
+      if (Folder.dbp) return Folder.dbp;
+      Folder.dbp = new Promise(function (res, rej) {
+        if (!window.indexedDB) { rej(new Error('sem IndexedDB')); return; }
+        var r = indexedDB.open('tp-pasta', 1);
+        r.onupgradeneeded = function () { r.result.createObjectStore('kv'); };
+        r.onsuccess = function () {
+          var db = r.result;
+          db.onversionchange = function () { db.close(); Folder.dbp = null; };   // versao nova do app em outra aba
+          res(db);
+        };
+        r.onerror = function () { rej(r.error); };
+      });
+      Folder.dbp.catch(function () { Folder.dbp = null; });
+      return Folder.dbp;
+    },
+    kv: function (mode, fn) {
+      return Folder.db().then(function (db) {
+        return new Promise(function (res, rej) {
+          var t = db.transaction('kv', mode), box = {};
+          fn(t.objectStore('kv'), box);
+          t.oncomplete = function () { res(box.v); };
+          t.onerror = t.onabort = function () { rej(t.error); };
+        });
+      });
+    },
+    // endereco guardado: so vale se ainda for uma pasta de verdade
+    load: function () {
+      if (LOCALHOST) return Promise.resolve(null);
+      return Folder.kv('readonly', function (s, box) { s.get('dir').onsuccess = function (e) { box.v = e.target.result; }; })
+        .then(function (h) {
+          if (h && typeof h.getFileHandle === 'function' && !Folder.handle) { Folder.handle = h; Folder.check(); }
+          Folder.paint();
+          return Folder.handle;
+        }, function () { return null; });
+    },
+    store: function (h) {
+      return Folder.kv('readwrite', function (s) { s.put(h, 'dir'); }).catch(function () { /* fica so nesta abertura */ });
+    },
+
+    /* escolha no seletor do sistema. Precisa do toque: chamar antes de qualquer espera. Escolhida a
+       propria PROMPTER, usa ela; senao cria a PROMPTER dentro da escolhida. Cancelou: fica a de antes. */
+    choose: function () {
+      if (!Folder.supported()) return Promise.resolve(Folder.handle);
+      var p;
+      try { p = window.showDirectoryPicker({ id: 'prompter', mode: 'readwrite', startIn: 'videos' }); } catch (e) { p = Promise.reject(e); }
+      return Promise.resolve(p).then(function (dir) {
+        return /^prompter$/i.test(dir.name || '') ? dir : dir.getDirectoryHandle(Folder.NAME, { create: true });
+      }).then(function (h) {
+        Folder.handle = h;
+        Folder.perm = 'granted';
+        Folder.warned = false;
+        Folder.store(h);
+        Folder.paint();
+        return h;
+      }, function (e) {
+        if (!(e && e.name === 'AbortError')) Toast.show('Não deu para usar essa pasta. Em Ajustes > Pasta dos vídeos, escolha Movies ou DCIM.', null, null, 9000);
+        else if (!Folder.handle) Toast.show('Sem pasta escolhida, os vídeos ficam na pasta Download. Para escolher depois: Ajustes > Pasta dos vídeos.', null, null, 9000);
+        return Folder.handle;
+      });
+    },
+
+    // licenca de escrita, sem pedir nada: ao carregar, ao abrir o prompter, antes de gravar e ao salvar
+    check: function () {
+      var h = Folder.handle;
+      if (!h) return Promise.resolve('');
+      if (typeof h.queryPermission !== 'function') { Folder.perm = 'granted'; return Promise.resolve('granted'); }
+      return Promise.resolve(h.queryPermission({ mode: 'readwrite' })).then(function (p) {
+        if (Folder.handle === h) Folder.perm = p;
+        return p;
+      }, function () { return Folder.perm; });
+    },
+    /* No toque que comeca a gravacao (um gesto): sem licenca, pede agora e NAO grava neste toque, para
+       o aviso do Android nao cobrir o texto com a gravacao rodando. No maximo uma vez por abertura;
+       recusou ou falhou, grava assim mesmo na Download. Devolve true se este toque foi usado para pedir. */
+    ask: function () {
+      var h = Folder.handle;
+      Folder.check();                   // confere de novo para o proximo toque, sem esperar
+      if (!Folder.active() || Folder.asked || Folder.perm !== 'prompt' || typeof h.requestPermission !== 'function') return false;
+      Folder.asked = true;
+      Prompter.flash('i-film', 'Libere a pasta PROMPTER', true);
+      Promise.resolve().then(function () { return h.requestPermission({ mode: 'readwrite' }); }).then(function (p) {
+        Folder.perm = p;
+        if (p === 'granted') Prompter.flash('i-check', cue('Pasta liberada: pise para gravar', 'Pasta liberada: toque para gravar'));
+        else Folder.warn('antes');
+      }, function () { Folder.perm = 'denied'; Folder.warn('antes'); });
+      return true;
+    },
+
+    // guarda o video no celular: pasta PROMPTER, ou Download se nao der. Nunca falha.
+    keep: function (blob, url, name) {
+      var done = function (where) { if (Folder.pendingWarn) Folder.warn(Folder.pendingWarn); return where; };
+      if (!Folder.active()) { Rec.download(url, name); return Promise.resolve(done('download')); }
+      return Folder.write(blob, name).then(function () { return done('pasta'); }, function () {
+        Rec.download(url, name);
+        Folder.warn('depois');
+        return done('download');
+      });
+    },
+    write: function (blob, name) {
+      var h = Folder.handle;
+      return Folder.check().then(function (p) {
+        if (p !== 'granted') throw new Error('sem licença');
+        return h.getFileHandle(name, { create: true });
+      }).then(function (fh) { return fh.createWritable(); }).then(function (w) {
+        return w.write(blob).then(function () { return w.close(); }, function (e) { safe(function () { return w.abort(); }); throw e; });
+      });
+    },
+    // uma vez por abertura: onde o video ficou e como voltar a usar a pasta (gravando, espera acabar)
+    warn: function (when) {
+      if (Folder.warned) return;
+      if (Rec.active()) { Folder.pendingWarn = when; return; }
+      Folder.warned = true;
+      Folder.pendingWarn = '';
+      Toast.show(when === 'antes'
+        ? 'Sem licença para a pasta PROMPTER: os vídeos vão para a pasta Download. Para trocar: Ajustes > Pasta dos vídeos.'
+        : 'O vídeo ficou na pasta Download do celular. Para voltar a usar a pasta PROMPTER: Ajustes > Pasta dos vídeos.', null, null, 9000);
+    },
+
+    // Ajustes > Gravacao: "Pasta dos vídeos: PROMPTER  [Trocar]" (ou Download)
+    paint: function () {
+      var row = $('#s-folder');
+      if (!row) return;
+      var on = Folder.active(), can = Folder.supported();
+      row.hidden = LOCALHOST;
+      $('#s-folder-hint').hidden = LOCALHOST;
+      $('#s-folder-name').textContent = on ? Folder.NAME : 'Download';
+      $('#btn-folder').hidden = !can;
+      $('#btn-folder').textContent = on ? 'Trocar' : 'Escolher';
+      $('#s-folder-hint').textContent = can
+        ? 'Escolha a pasta Movies ou DCIM, que a Galeria mostra. O app cria a pasta PROMPTER dentro dela.'
+        : 'Este celular não deixa o app escolher a pasta: os vídeos ficam na pasta Download.';
+    }
+  };
+  $('#btn-folder').addEventListener('click', function () {
+    // o seletor do Android sai do app: no meio de uma gravacao a camera pararia
+    if (Rec.active()) { Toast.show('Pare a gravação antes de trocar a pasta.'); return; }
+    Folder.choose().then(function (h) { if (h) Toast.show('Pronto: os vídeos vão para a pasta PROMPTER.'); });
+  });
+
+  /* ---- onde guardar os videos (v9.5): pergunta uma vez, antes da primeira gravacao ----
+     Depois de escolher camera da frente ou traseira, nunca no meio de uma gravacao (o login do Google
+     sai da pagina e o video em andamento se perderia). Nao pergunta nos aparelhos da Robertha. */
+  var SaveAsk = {
+    id: null,
+    needed: function () { return !LOCALHOST && !settings.saveAsked; },
+    isShown: function () { return !$('#save-ask').hidden; },
+    show: function (id) {
+      SaveAsk.id = id;
+      var can = Folder.supported();
+      $('#save-ask-text').textContent = 'Todo vídeo fica salvo no seu celular, na pasta ' + (can ? 'PROMPTER da Galeria' : 'Download') + '. Quer que ele suba também para o seu Google Drive?';
+      $('#save-ask-tip').hidden = !can;
+      $('#save-ask').hidden = false;
+    },
+    answer: function (drive) {
+      var picked = Folder.choose();     // primeiro: o seletor de pasta precisa deste toque
+      var id = SaveAsk.id;
+      $('#save-ask').hidden = true;
+      settings.saveAsked = true;
+      settings.driveUpload = drive;
+      saveSettings();
+      Settings.syncControls();
+      if (!drive) Up.clear().catch(function () { /* sem IndexedDB: nada na fila */ });
+      picked.then(function () {
+        if (!findScript(id)) return;
+        // sim: entra no Google agora (antes de gravar); a volta abre o roteiro
+        if (drive && !GDocs.canWrite() && navigator.onLine) { GDocs.login({ do: 'present', id: id }); return; }
+        if (drive && Up.refreshBeforeRecording({ do: 'present', id: id })) return;
+        Prompter.open(id);
+      });
+    }
+  };
+  $('#btn-save-local').addEventListener('click', function () { SaveAsk.answer(false); });
+  $('#btn-save-drive').addEventListener('click', function () { SaveAsk.answer(true); });
+
   /* ---- escolha do modo ao abrir um roteiro ---- */
   var Modes = {
     id: null,
@@ -2914,6 +3131,8 @@
     choose: function (mode) {
       Modes.close();
       Modes.apply(mode);
+      // primeira gravacao (fora dos aparelhos da Robertha): pergunta onde guardar os videos
+      if (settings.record && SaveAsk.needed()) { SaveAsk.show(Modes.id); return; }
       // vai gravar: renova o login do Google agora se faltar pouco (no meio da gravacao nao da)
       if (settings.record && Up.refreshBeforeRecording({ do: 'present', id: Modes.id })) return;
       Prompter.open(Modes.id);
@@ -3886,6 +4105,7 @@
       $('#s-wake').checked = !!settings.wake;
       $('#s-fullscreen').checked = !!settings.fullscreen;
       $('#s-haptics').checked = !!settings.haptics;
+      Folder.paint();
     },
 
     buildSteppers: function () {
@@ -3977,7 +4197,14 @@
         Prompter.updateUI();
       });
       flag('#s-campreview', 'camPreview');
-      flag('#s-drive', 'driveUpload', function (on) { if (on) Up.run(); Up.paint(true); });
+      flag('#s-drive', 'driveUpload', function (on) {
+        if (on) Up.run();
+        Up.paint(true);
+        // v9.5: ligar sem login leva ao login (gravando, so depois: sair da pagina perderia o video)
+        if (!on || LOCALHOST || GDocs.canWrite() || !navigator.onLine) return;
+        if (Rec.active()) { Toast.show('Depois de gravar, entre no Google para os vídeos subirem para o Drive.'); return; }
+        GDocs.login(Prompter.isOpen() ? { do: 'present', id: Prompter.id } : { do: 'upload' });
+      });
       $('#s-presets').addEventListener('click', function (ev) {
         var b = ev.target.closest('[data-wpm]'); if (!b) return;
         Prompter.setWpm(Number(b.dataset.wpm), true); haptic(6);
@@ -4301,6 +4528,7 @@
   // videos que ficaram na fila do Drive (app fechado, sem internet, login vencido) continuam a subir;
   // com video esperando login, a rodada termina renovando o login sozinha (tela inicial)
   Up.all().then(function () { Up.paint(true); setTimeout(Up.run, 1200); }, function () { /* sem IndexedDB */ });
+  Folder.load();          // pasta PROMPTER escolhida antes (v9.5)
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('controllerchange', function () {
@@ -4313,5 +4541,5 @@
   }
 
   // gancho para teste automatizado (nao afeta o uso)
-  window.__tp = { Prompter: Prompter, Rec: Rec, Up: Up, UpLeave: UpLeave, Guard: Guard, Modes: Modes, Flip: Flip, Player: Player, Input: Input, Voice: Voice, GDocs: GDocs, Sound: Sound, Gestures: Gestures, settings: settings, keymap: function () { return keymap; }, toNatural: toNatural, swipeToken: swipeToken, Script: Script };
+  window.__tp = { Prompter: Prompter, Rec: Rec, Up: Up, UpLeave: UpLeave, Guard: Guard, Modes: Modes, Flip: Flip, Folder: Folder, SaveAsk: SaveAsk, Player: Player, Input: Input, Voice: Voice, GDocs: GDocs, Sound: Sound, Gestures: Gestures, settings: settings, keymap: function () { return keymap; }, toNatural: toNatural, swipeToken: swipeToken, Script: Script };
 })();

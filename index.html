@@ -442,7 +442,12 @@
           </div>
         </div>
         <p class="hint">Gire até a imagem do canto ficar em pé: o vídeo sai girado igual.</p>
-        <label class="switch"><span>Subir os vídeos para o Google Drive<small>Pasta “Gravações do Prompter”, uma por dia. Fica também uma cópia na pasta Download do celular.</small></span><input type="checkbox" role="switch" id="s-drive"></label>
+        <div class="field" id="s-folder">
+          <span class="field-label">Pasta dos vídeos: <b id="s-folder-name">Download</b></span>
+          <button class="btn" id="btn-folder" type="button">Escolher</button>
+        </div>
+        <p class="hint" id="s-folder-hint"></p>
+        <label class="switch"><span>Subir os vídeos para o Google Drive<small>Pasta “Gravações do Prompter”, uma por dia. O vídeo fica também no celular.</small></span><input type="checkbox" role="switch" id="s-drive"></label>
 
         <h3 class="section-title">Espelho</h3>
         <label class="switch"><span>Espelhar na horizontal<small>Teleprompter com vidro (Parrot)</small></span><input type="checkbox" role="switch" id="s-mirror-h"></label>
@@ -487,6 +492,20 @@
         </button>
       </div>
       <div class="wiz-actions"><button class="btn" id="btn-mode-cancel" type="button">Cancelar</button></div>
+    </div>
+  </div>
+
+  <!-- ================= ONDE GUARDAR OS VIDEOS (v9.5) ================= -->
+  <div class="overlay" id="save-ask" hidden role="dialog" aria-modal="true" aria-labelledby="save-ask-title">
+    <div class="wiz-box">
+      <div class="up-leave-art" aria-hidden="true"><svg class="ic"><use href="#i-film"></use></svg></div>
+      <h2 class="wiz-title" id="save-ask-title">Onde guardar seus vídeos?</h2>
+      <p class="hint center" id="save-ask-text">Todo vídeo fica salvo no seu celular, na pasta PROMPTER da Galeria. Quer que ele suba também para o seu Google Drive?</p>
+      <p class="hint center save-ask-tip" id="save-ask-tip">Depois, o celular pede uma pasta: escolha <b>Movies</b> ou <b>DCIM</b> e toque em <b>Usar esta pasta</b>. O app cria a pasta PROMPTER dentro dela.</p>
+      <div class="wiz-actions up-leave-actions">
+        <button class="btn" id="btn-save-local" type="button">Não, só no celular</button>
+        <button class="btn primary" id="btn-save-drive" type="button">Sim, configurar o Google Drive</button>
+      </div>
     </div>
   </div>
 

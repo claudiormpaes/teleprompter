@@ -145,6 +145,9 @@ body{
 .up-leave-actions{flex-direction:column;align-items:stretch;margin-top:16px}
 .up-leave-actions .btn{min-height:52px}
 .up-leave-actions .btn[hidden]{display:none}
+/* onde guardar os videos (v9.5): a dica do seletor de pasta, em destaque discreto */
+.save-ask-tip{font-size:13px;background:var(--surface-2);border-radius:12px;padding:10px 12px}
+.save-ask-tip b{color:var(--fg)}
 .tab-box{max-height:calc(100vh - 32px);display:flex;flex-direction:column}
 .tab-box .list{overflow:auto;margin:8px 0 12px;text-align:left}
 .lib-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
