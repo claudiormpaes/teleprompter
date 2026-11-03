@@ -691,3 +691,132 @@ body{
   .btn:active{transform:none}
   .flash,.flash.show{transform:translate(-50%,-50%)}
 }
+
+/* ---------- escolha do modo: "Celular: Em pé | Deitado" (v9.6) ---------- */
+.seg{
+  display:flex;align-items:center;justify-content:center;gap:4px;width:max-content;max-width:100%;
+  margin:12px auto 0;padding:4px;border-radius:14px;background:var(--surface-2);border:1px solid var(--line);
+}
+.seg-label{padding:0 8px 0 10px;color:var(--fg-dim);font-weight:600;font-size:15px}
+.seg-btn{
+  min-height:44px;min-width:88px;padding:0 16px;border:0;border-radius:10px;background:none;
+  color:var(--fg);font:inherit;font-weight:700;font-size:15px;cursor:pointer;
+}
+.seg-btn[aria-checked="true"]{background:var(--accent);color:var(--accent-ink)}
+/* tela deitada: os tres cartoes lado a lado, para a caixa caber */
+@media (orientation:landscape) and (max-height:560px){
+  #mode-picker{padding:10px}
+  .mode-box{max-width:760px;padding:14px 16px 10px}
+  .mode-box .wiz-title{margin-top:0;font-size:22px}
+  .mode-list{flex-direction:row;margin:10px 0 6px}
+  .mode-card{flex:1 1 0;min-width:0;flex-direction:column;align-items:flex-start;gap:8px;min-height:0}
+  .mode-card > .ic{width:28px;height:28px}
+}
+/* aviso "Deite o celular" */
+.lay-art .ic{transform:rotate(-90deg);animation:laynudge 2.4s var(--ease-out) infinite}
+@keyframes laynudge{0%,35%{transform:rotate(0)}55%,100%{transform:rotate(-90deg)}}
+
+/* ---------- gravar com o celular deitado (v9.6) ----------
+   Classes em #app (Lay.paint), so com a tela deitada: tp-lf = camera da frente, com tp-lens-l
+   (lente a esquerda, landscape-primary) ou tp-lens-r (lente a direita); tp-lr = camera traseira.
+   --dockh (altura do painel de controles) e --camw (largura da imagem) sao medidos (Lay.measure). */
+
+/* frente deitada: o texto numa coluna encostada no lado da lente, linha de leitura no meio da altura.
+   Do outro lado, o painel: botoes no alto, som e imagem no meio (a imagem na borda de fora), controles
+   embaixo. Nada de controle ou aviso na coluna do texto. */
+#app.tp-lf{--panel:clamp(340px,47vw,480px)}
+#app.tp-lf #view-prompter{
+  --ptop:64px;
+  --camh:min(calc(100vh - var(--ptop) - var(--dockh,124px) - 16px - var(--safe-t) - var(--safe-b)),calc((var(--panel) - 30px) * .56 / var(--camratio,1.7778)));
+}
+/* do lado do painel, o texto para antes da seta da linha de leitura */
+#app.tp-lens-l #view-prompter .scroller{padding-left:var(--pad,6%);padding-right:calc(var(--panel) + 34px)}
+#app.tp-lens-r #view-prompter .scroller{padding-left:calc(var(--panel) + 34px);padding-right:var(--pad,6%)}
+#app.tp-lens-l #view-prompter .guide,#app.tp-lens-l #view-prompter .readfade{right:var(--panel)}
+#app.tp-lens-r #view-prompter .guide,#app.tp-lens-r #view-prompter .readfade{left:var(--panel)}
+#app.tp-lens-l #view-prompter .progress{left:calc(100% - var(--panel))}
+#app.tp-lens-r #view-prompter .progress{right:calc(100% - var(--panel))}
+#app.tp-lf #view-prompter .p-top{width:var(--panel);gap:6px;padding-top:calc(8px + var(--safe-t));padding-bottom:8px}
+#app.tp-lens-l #view-prompter .p-top{left:auto;padding-left:10px}
+#app.tp-lens-r #view-prompter .p-top{right:auto;padding-right:10px}
+#app.tp-lf #pc-mirror{display:none}           /* espelhar o texto nao serve aqui (fica nos Ajustes) */
+#app.tp-lf #view-prompter .cam{top:calc(var(--ptop) + var(--safe-t))}
+#app.tp-lens-l #view-prompter .cam{left:auto;right:calc(10px + var(--safe-r))}
+#app.tp-lens-r #view-prompter .cam{right:auto;left:calc(10px + var(--safe-l))}
+/* som: ao lado da imagem, do lado do texto */
+#app.tp-lf #view-prompter .snd-alert{
+  top:calc(var(--ptop) + var(--safe-t));bottom:auto;transform:none;width:auto;overflow:hidden;
+  max-height:calc(100vh - var(--ptop) - var(--dockh,124px) - 16px - var(--safe-t) - var(--safe-b));
+}
+#app.tp-lens-l #view-prompter .snd-alert{left:calc(100% - var(--panel) + 10px);right:calc(20px + var(--safe-r) + var(--camh) * var(--camratio,1.7778))}
+#app.tp-lens-r #view-prompter .snd-alert{right:calc(100% - var(--panel) + 10px);left:calc(20px + var(--safe-l) + var(--camh) * var(--camratio,1.7778))}
+#app.tp-lens-l #view-prompter:not(.has-cam) .snd-alert{right:calc(10px + var(--safe-r))}
+#app.tp-lens-r #view-prompter:not(.has-cam) .snd-alert{left:calc(10px + var(--safe-l))}
+/* selo REC sobre a parte de baixo da imagem */
+#app.tp-lf #view-prompter .rec-badge{top:calc(var(--ptop) + var(--safe-t) + var(--camh) - 48px)}
+#app.tp-lens-l #view-prompter .rec-badge{left:auto;right:calc(10px + var(--safe-r) + var(--camh) * var(--camratio,1.7778) / 2);transform:translateX(50%)}
+#app.tp-lens-r #view-prompter .rec-badge{right:auto;left:calc(10px + var(--safe-l) + var(--camh) * var(--camratio,1.7778) / 2);transform:translateX(-50%)}
+#app.tp-lf #view-prompter:not(.has-cam) .rec-badge{top:auto;bottom:calc(var(--dockh,124px) + 8px)}
+/* controles: barra de posicao em cima; velocidade e play lado a lado (parar: selo REC ou botao do alto) */
+#app.tp-lf #view-prompter .dock{
+  width:var(--panel);top:auto;bottom:0;
+  grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"scrub scrub" "speed transport";gap:6px 10px;
+  padding:8px calc(10px + var(--safe-r)) calc(8px + var(--safe-b)) calc(10px + var(--safe-l));
+}
+#app.tp-lens-l #view-prompter .dock{left:auto;right:0}
+#app.tp-lens-r #view-prompter .dock{right:auto;left:0}
+#app.tp-lf .speed{grid-area:speed;gap:6px}
+#app.tp-lf .transport{grid-area:transport;gap:8px}
+#app.tp-lf .scrub{grid-area:scrub;padding-top:0}
+#app.tp-lf .dial{height:56px;border-radius:16px}
+#app.tp-lf .dial-read{margin-top:6px}
+#app.tp-lf .dial-read b{font-size:26px}
+#app.tp-lf .dial-read span{font-size:13px}
+#app.tp-lf .dial-sub{display:none}
+#app.tp-lf .btn.step{width:48px;height:48px;flex-basis:48px}
+#app.tp-lf .btn.step .ic{width:24px;height:24px}
+#app.tp-lf .btn.mid{width:48px;height:48px}
+#app.tp-lf .btn.play{width:56px;height:56px;box-shadow:0 0 0 4px var(--accent-soft)}
+#app.tp-lf .btn.play .ic{width:28px;height:28px}
+#app.tp-lf .scrub-track{height:28px}
+#app.tp-lf .scrub-meta{font-size:12px}
+#app.tp-lf #pc-stop{display:none}
+/* selo de pausa, retorno das acoes, contagem e voz: no painel, longe da lente */
+#app.tp-lens-l #view-prompter .pause-pill,#app.tp-lens-l #view-prompter .flash{left:calc(100% - var(--panel) / 2)}
+#app.tp-lens-r #view-prompter .pause-pill,#app.tp-lens-r #view-prompter .flash{left:calc(var(--panel) / 2)}
+#app.tp-lf #view-prompter .flash{top:50%}
+#app.tp-lf .flash-icon{width:min(24vmin,110px);height:min(24vmin,110px)}
+#app.tp-lf #view-prompter .countdown{width:var(--panel);font-size:min(36vh,30vw)}
+#app.tp-lens-l #view-prompter .countdown{left:auto}
+#app.tp-lens-r #view-prompter .countdown{right:auto}
+#app.tp-lens-l #view-prompter .voice-flag{left:auto;right:calc(10px + var(--safe-r))}
+#app.tp-lens-r #view-prompter .voice-flag{right:auto;left:calc(10px + var(--safe-l))}
+#app.tp-lf #view-prompter:not(.ui-hidden) .voice-flag{top:calc(var(--ptop) + var(--safe-t) + var(--camh) + 8px)}
+#app.tp-lf .toast{bottom:calc(var(--dockh,124px) + 8px + var(--safe-b));max-width:calc(var(--panel) - 20px)}
+#app.tp-lens-l .toast{left:calc(100% - var(--panel) / 2)}
+#app.tp-lens-r .toast{left:calc(var(--panel) / 2)}
+
+/* traseira deitada: texto na largura toda, imagem e som numa coluna no canto, controles embaixo */
+#app.tp-lr #view-prompter{--camh:min(30vh,24vw);--camcol:calc(var(--camh) * var(--camratio,1.7778) + 24px + var(--safe-r))}
+#app.tp-lr #view-prompter:not(.has-cam){--camcol:calc(236px + var(--safe-r))}
+#app.tp-lr #view-prompter .scroller{padding-right:calc(var(--pad,6%) + var(--camcol))}
+#app.tp-lr #view-prompter .guide,#app.tp-lr #view-prompter .readfade{right:var(--camcol)}
+#app.tp-lr #view-prompter .dock{right:var(--camcol)}
+#app.tp-lr #view-prompter .snd-alert{
+  top:calc(64px + var(--safe-t) + var(--camh) + 8px);bottom:auto;left:auto;right:calc(12px + var(--safe-r));transform:none;
+  width:calc(var(--camcol) - 24px - var(--safe-r));overflow:hidden;
+  max-height:calc(100vh - 64px - var(--camh) - 18px - var(--safe-t) - var(--safe-b));
+}
+#app.tp-lr #view-prompter:not(.has-cam) .snd-alert{top:calc(64px + var(--safe-t))}
+#app.tp-lr #view-prompter .pause-pill,#app.tp-lr #view-prompter .flash{left:calc((100% - var(--camcol)) / 2)}
+#app.tp-lr .toast{bottom:calc(var(--dockh,174px) + 8px + var(--safe-b));left:calc((100% - var(--camw,0px) - 24px) / 2);max-width:calc(100% - var(--camw,0px) - 56px)}
+
+/* som em faixa compacta (deitado nao cabe a faixa de 56 px) */
+#app.tp-lf .snd-alert,#app.tp-lr .snd-alert{gap:10px;padding:8px 10px 10px;border-radius:14px;align-items:flex-start}
+#app.tp-lf .snd-alert div,#app.tp-lr .snd-alert div{gap:6px}
+#app.tp-lf .snd-alert b,#app.tp-lr .snd-alert b{font-size:24px;white-space:normal}
+#app.tp-lf .snd-alert[data-st=nap] b,#app.tp-lr .snd-alert[data-st=nap] b{font-size:20px}
+#app.tp-lf #snd-sub,#app.tp-lr #snd-sub{font-size:13px;line-height:1.25}
+#app.tp-lf .snd-vu,#app.tp-lr .snd-vu{height:8px}
+#app.tp-lf .snd-alert .ic{display:none}
+#app.tp-lr .snd-alert .ic{width:26px;height:26px}

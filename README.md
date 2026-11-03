@@ -101,6 +101,39 @@ arquivo, 10 vezes por segundo, desde que a câmera liga:
   pisca). "SOM OK" só depois de chegar som de verdade; antes disso, "OUVINDO…" (cinza).
 - Microfone que cai fora da gravação (receptor tirado e posto de volta) é pedido de novo sozinho.
 
+## Gravar com o celular deitado (v9.6, 03/11/2026)
+
+Pedido do Cláudio: usar o app também na posição de gravação horizontal. Na tela "Como vai gravar?"
+há agora **Celular: Em pé | Deitado** no topo da caixa (fica lembrado em `settings.phone`). Com
+"Deitado", os cartões da frente e da traseira abrem os modos `front-h` e `rear-h`, que têm memória
+própria, separada dos modos em pé. "Só ler" não muda. Os modos em pé continuam iguais.
+
+- **Tela:** `recScreen: 'landscape'` (novo chip "Deitada, o lado em que estiver"). Antes de gravar, a
+  tela fica deitada no lado em que o celular estiver e o layout acompanha se ele for virado. Gravando,
+  ela trava naquele lado (`landscape-primary` ou `landscape-secondary`).
+- **Aviso "Deite o celular":** abrindo com o celular ainda em pé, o aviso aparece e some sozinho
+  quando o acelerômetro mostra o celular deitado (gravidade no eixo x). Sem sensor, use o botão
+  "Já está". O aviso de cabeça para baixo (`Flip`) nunca aparece nos modos deitados.
+- **Câmera da frente deitada (`tp-lf` em `#app`):** a lente fica num dos lados curtos, na metade da
+  altura. O lado sai de `screen.orientation.type`: `landscape-primary` = topo do aparelho à esquerda
+  = lente à esquerda (`tp-lens-l`), `landscape-secondary` = lente à direita (`tp-lens-r`). O texto fica
+  numa coluna encostada no lado da lente, com a linha de leitura a 45% da altura. No outro lado fica
+  o painel: botões no alto, faixa do som e imagem no meio (a imagem na borda de fora, com o selo REC
+  embaixo dela) e controles embaixo. O aviso (toast), a contagem, o selo "Pausado" e o retorno das
+  ações também ficam no painel. Nada de controle ou aviso na faixa do lado da lente. Para caber, o
+  botão de parar do painel e o de espelhar somem nesse layout: para parar, use o selo REC ou o botão do
+  alto (o espelho continua nos Ajustes).
+- **Câmera traseira deitada (`tp-lr`):** texto na largura toda, linha no terço, imagem no canto com a
+  faixa do som logo abaixo dela e controles embaixo.
+- **Arquivo horizontal:** com a tela deitada, o Chrome do Android entrega o quadro deitado e o vídeo
+  sai com largura maior que altura, sem giro. Se mesmo assim a faixa vier em pé
+  (`track.getSettings()` com largura menor que altura), `Rec.fixRot` grava o giro no tkhd (90° ou 270°,
+  conforme o lado e a câmera) para o vídeo tocar horizontal.
+- **Pedal:** o deslize continua medido no referencial do celular em pé, então os pedais não trocam
+  de lugar nas duas orientações deitadas, e o deslize que começa sobre os controles continua valendo.
+- Testes: `tests/test-horizontal.js` (telas 832×384 e 915×412, as duas orientações deitadas,
+  sobreposição por caixas, ffprobe do arquivo, memória em pé/deitado e pedal).
+
 ## Pedal Bluetooth (M-VAVE Cube Turner)
 
 O Cube Turner tem 7 modos (toque curto no botao Mode; o LED mostra qual):

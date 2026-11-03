@@ -169,6 +169,13 @@
       <p class="hint center">A lente fica embaixo, colada no texto. Quando virar, este aviso some sozinho.</p>
       <button class="btn primary xl" id="btn-flip-ok" type="button">Já está</button>
     </div>
+    <!-- v9.6: celular deitado (video horizontal) -->
+    <div class="flipwarn" id="laywarn" hidden role="dialog" aria-modal="true" aria-labelledby="lay-title">
+      <div class="flip-art lay-art" aria-hidden="true"><svg class="ic"><use href="#i-selfie"></use></svg></div>
+      <h2 class="flip-title" id="lay-title">Deite o celular</h2>
+      <p class="hint center">Para o vídeo sair horizontal. Quando deitar, este aviso some sozinho.</p>
+      <button class="btn primary xl" id="btn-lay-ok" type="button">Já está</button>
+    </div>
     <div class="player" id="player" hidden role="dialog" aria-modal="true" aria-label="Última gravação">
       <video id="player-video" controls playsinline></video>
       <div class="player-bar"><span id="player-name"></span><button class="btn" id="btn-player-close" type="button">Fechar</button></div>
@@ -428,6 +435,7 @@
             <button class="chip" type="button" role="radio" data-scr="portrait-secondary">Em pé, invertida</button>
             <button class="chip" type="button" role="radio" data-scr="landscape-primary">Deitada</button>
             <button class="chip" type="button" role="radio" data-scr="landscape-secondary">Deitada, invertida</button>
+            <button class="chip" type="button" role="radio" data-scr="landscape">Deitada, o lado em que estiver</button>
             <button class="chip" type="button" role="radio" data-scr="livre">Livre</button>
           </div>
         </div>
@@ -477,6 +485,11 @@
   <div class="overlay" id="mode-picker" hidden role="dialog" aria-modal="true" aria-labelledby="mode-title">
     <div class="wiz-box mode-box">
       <h2 class="wiz-title" id="mode-title">Como vai gravar?</h2>
+      <div class="seg" id="mode-orient" role="radiogroup" aria-label="Posição do celular">
+        <span class="seg-label" aria-hidden="true">Celular:</span>
+        <button class="seg-btn" type="button" role="radio" aria-checked="true" data-orient="portrait">Em pé</button>
+        <button class="seg-btn" type="button" role="radio" aria-checked="false" data-orient="landscape">Deitado</button>
+      </div>
       <div class="mode-list">
         <button class="mode-card" type="button" data-mode="front">
           <svg class="ic" aria-hidden="true"><use href="#i-selfie"></use></svg>

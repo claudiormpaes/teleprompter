@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v9.5';
+  var APP_VERSION = 'v9.6';
   var K_SCRIPTS = 'tp.scripts';
   var K_SETTINGS = 'tp.settings';
   var K_KEYS = 'tp.keys2';          // v6: deslizes passaram a ser medidos com o celular em pe
@@ -61,7 +61,8 @@
     driveUpload: true,  // cada video sobe sozinho para o Google Drive (alem da copia na pasta Download)
     camPos: 'top',      // imagem da camera: top (no alto, centralizada) | line (logo acima da linha de leitura) | corner (canto direito)
     textAlign: 'left',  // left | center
-    recScreen: 'landscape-primary'   // tela travada enquanto grava: landscape-primary | landscape-secondary | portrait-primary | portrait-secondary | livre
+    recScreen: 'landscape-primary',  // tela travada enquanto grava: landscape-primary | landscape-secondary | landscape (deitada, o lado em que estiver) | portrait-primary | portrait-secondary | livre
+    phone: 'portrait'   // v9.6: na escolha do modo, o celular fica em pe (portrait) ou deitado (landscape, video horizontal)
   };
 
   /* Cada acao aceita varios comandos: o code (ou key) de uma tecla, ou um gesto.
@@ -129,8 +130,15 @@
     // camera traseira: celular em pe, tela normal, imagem no canto
     rear: { record: true, camFacing: 'environment', recScreen: 'portrait-primary', guidePos: 33, camPos: 'corner', textAlign: 'left', camRotate: 0, camPreview: true, mirrorH: false, mirrorV: false },
     // so ler: o teleprompter de sempre
-    plain: { record: false, recScreen: 'livre', guidePos: 33, textAlign: 'left' }
+    plain: { record: false, recScreen: 'livre', guidePos: 33, textAlign: 'left' },
+    /* v9.6, celular deitado (video horizontal). Memoria separada da versao em pe. A tela trava deitada
+       no lado em que o celular estiver ('landscape'); gravando, trava naquele lado (Rec.lockScreen). */
+    // camera da frente deitada: texto numa coluna encostada no lado da lente, linha no meio da altura (Lay)
+    'front-h': { record: true, camFacing: 'user', recScreen: 'landscape', guidePos: 45, camPos: 'corner', textAlign: 'left', camRotate: 0, camPreview: true, mirrorH: false, mirrorV: false },
+    // camera traseira deitada: texto na largura toda, imagem no canto, controles embaixo
+    'rear-h': { record: true, camFacing: 'environment', recScreen: 'landscape', guidePos: 33, camPos: 'corner', textAlign: 'left', camRotate: 0, camPreview: true, mirrorH: false, mirrorV: false }
   };
+  function landMode(m) { return /-h$/.test(m === undefined ? settings.mode || '' : m || ''); }
 
   function saveSettings() {
     if (settings.mode && MODE_PRESETS[settings.mode]) {
@@ -1909,6 +1917,7 @@
       // gravando, nada comeca sozinho: a pessoa senta, se enquadra e pisa no pedal
       if (Rec.enabled()) {
         Flip.start();      // antes do prepare: enquanto decide se o celular esta virado, a tela nao inverte
+        Lay.start();       // deitado (v9.6): o mesmo, enquanto decide se o celular esta deitado
         Rec.prepare();
         Rec.poke();        // abrir (trocar de modo reabre) zera a contagem da camera ociosa
         Folder.check();    // licenca da pasta PROMPTER: o primeiro toque sabe se precisa pedir
@@ -1952,7 +1961,9 @@
       Follow.stop();
       if (Player.isOpen()) Player.close();
       Flip.stop();
+      Lay.stop();
       Rec.release();
+      Lay.clear();
       safe(Prompter.releaseWakeLock);
       safe(Prompter.exitFullscreen);
     },
@@ -2454,12 +2465,31 @@
 
     /* tela travada enquanto grava. Camera traseira: o celular fica em pe, de costas para a pessoa,
        e a tela deitada aparece inteira no monitor do lado da lente (em pe ela vira uma faixa estreita).
-       As versoes "invertidas" servem para o celular (ou o monitor) de cabeca para baixo. */
+       As versoes "invertidas" servem para o celular (ou o monitor) de cabeca para baixo.
+       v9.6: 'landscape' = deitada, no lado em que o celular estiver (o layout acompanha se virar);
+       gravando, trava naquele lado. */
     lockScreen: function () {
       var o = screen.orientation;
-      if (!o || !o.lock || Flip.on) return;      // aviso de virar o celular em andamento: ele decide a tela
-      if (Rec.enabled() && Prompter.isOpen() && /^(landscape|portrait)-/.test(settings.recScreen)) safe(function () { return o.lock(settings.recScreen); });
+      if (!o || !o.lock || Flip.on || Lay.on) return;      // aviso de virar/deitar o celular em andamento: ele decide a tela
+      var want = settings.recScreen;
+      if (want === 'landscape' && Rec.active()) {
+        if (!/^landscape-/.test(o.type || '')) return;      // a tela nao deitou (a trava falhou): girar agora mudaria o video no meio
+        want = o.type;
+      }
+      if (Rec.enabled() && Prompter.isOpen() && /^(landscape|portrait)(-|$)/.test(want)) safe(function () { return o.lock(want); });
       else if (o.unlock) safe(function () { o.unlock(); });
+    },
+
+    /* v9.6: gravando deitado, o Chrome do Android entrega o quadro deitado (na orientacao da tela).
+       Se a faixa vier em pe mesmo assim, o giro que falta vai para o tkhd (sem recodificar) e o
+       video toca horizontal. Graus no sentido horario; frente e traseira giram ao contrario, porque
+       a imagem da frente sai como os outros veem (nao espelhada). */
+    fixRot: function () {
+      if (!landMode() || !Rec.stream || !Lay.flat()) return 0;
+      var t = Rec.stream.getVideoTracks()[0], s = (t && t.getSettings && t.getSettings()) || {};
+      var v = $('#cam-video'), w = s.width || v.videoWidth, h = s.height || v.videoHeight;
+      if (!w || !h || w >= h) return 0;
+      return (Lay.side() === 'l') === (settings.camFacing === 'user') ? 90 : 270;
     },
 
     // ao abrir o prompter: so liga a camera, para enquadrar
@@ -2599,7 +2629,7 @@
       // posicao final de um salto em andamento: o nome sai do bloco onde o texto vai parar
       var chunks = [], started = new Date(), sec = Prompter.sectionAt(Prompter.baseOffset());
       var label = Prompter.sectionTitle(sec) || $('#p-title').textContent;
-      var rot = (settings.camRotate | 0) % 360;
+      var rot = ((settings.camRotate | 0) + Rec.fixRot()) % 360;
       mr.ondataavailable = function (ev) { if (ev.data && ev.data.size) chunks.push(ev.data); };
       mr.onstop = function () { Rec.save(chunks, mr.mimeType || type, started, label, rot); };
       mr.onerror = function () {
@@ -2610,6 +2640,7 @@
       Rec.mr = mr;
       Rec.sec = sec;
       Rec.t0 = now();
+      if (settings.recScreen === 'landscape') Rec.lockScreen();   // deitada: gravando, a tela fica travada no lado em que esta
       clearInterval(Rec.clock);
       Rec.clock = setInterval(Rec.paintClock, 500);
       haptic(25);
@@ -2633,6 +2664,7 @@
       if (mr) Rec.savedAt = now();
       if (mr && mr.state !== 'inactive') safe(function () { mr.stop(); });
       if (mr) Rec.poke();               // gravacao acabou: a camera ociosa conta a partir daqui
+      if (mr && settings.recScreen === 'landscape') Rec.lockScreen();   // deitada: volta a seguir o lado do celular
       Rec.paint();
     },
     // fim do roteiro: um respiro gravado antes de fechar o arquivo
@@ -2685,16 +2717,19 @@
 
     paint: function () {
       var on = Rec.enabled() && Prompter.isOpen();
-      var v = $('#cam-video'), rot = (settings.camRotate | 0) % 360, vp = VIEWS.prompter;
+      // deitado com a faixa em pe (fixRot): o canto gira junto; a imagem da frente e espelho, gira ao contrario
+      var fix = Rec.fixRot(), land = landMode() && Lay.flat();
+      var v = $('#cam-video'), rot = ((settings.camRotate | 0) + (settings.camFacing === 'user' ? 360 - fix : fix)) % 360, vp = VIEWS.prompter;
       var show = on && !!settings.camPreview;
       $('#cam').hidden = !show;
       vp.classList.toggle('has-cam', show);
-      // onde fica a imagem: no alto (centralizada), logo acima da linha de leitura, ou no canto (o texto abre espaco)
-      vp.classList.toggle('cam-top', show && settings.camPos === 'top');
-      vp.classList.toggle('cam-above', show && settings.camPos === 'line');
+      // onde fica a imagem: no alto (centralizada), logo acima da linha de leitura, ou no canto (o texto abre espaco).
+      // Deitado, o lugar e do layout deitado (Lay): coluna do canto
+      vp.classList.toggle('cam-top', show && settings.camPos === 'top' && !land);
+      vp.classList.toggle('cam-above', show && settings.camPos === 'line' && !land);
       vp.classList.toggle('recording', Rec.active());
       // a caixa do canto segue a proporcao da imagem ja girada
-      var w = v.videoWidth || 9, h = v.videoHeight || 16;
+      var w = v.videoWidth || (land ? 16 : 9), h = v.videoHeight || (land ? 9 : 16);
       if (rot % 180) { var t = w; w = h; h = t; }
       vp.style.setProperty('--camratio', (w / h).toFixed(4));
       vp.style.setProperty('--camrot', rot + 'deg');
@@ -2711,9 +2746,12 @@
       $('#rec-badge').hidden = !Rec.active();
       Rec.paintClock();
       Sound.paint();
+      Lay.measure();
     }
   };
   $('#cam-video').addEventListener('loadedmetadata', function () { Rec.paint(); });
+  // a imagem mudou de tamanho (o quadro girou com a tela): a caixa acompanha
+  $('#cam-video').addEventListener('resize', function () { Rec.paint(); });
 
   /* ---- o som esta chegando? ----
      27/10: o receptor USB do microfone sem fio ficou ligado ao celular e entregou so um chiado
@@ -3109,7 +3147,15 @@
   $('#btn-save-local').addEventListener('click', function () { SaveAsk.answer(false); });
   $('#btn-save-drive').addEventListener('click', function () { SaveAsk.answer(true); });
 
-  /* ---- escolha do modo ao abrir um roteiro ---- */
+  /* ---- escolha do modo ao abrir um roteiro ----
+     v9.6: "Celular: Em pé | Deitado" no topo da caixa (fica lembrado em settings.phone). Deitado,
+     os cartoes da frente e da traseira viram os modos front-h e rear-h (video horizontal). */
+  var MODE_TEXT = {
+    front: { portrait: 'Lê na tela do celular, que fica de cabeça para baixo. Para gravar sozinha.',
+      landscape: 'Celular deitado, vídeo horizontal. Lê na tela, perto da lente.' },
+    rear: { portrait: 'Imagem melhor. Celular em pé, tela virada para quem opera.',
+      landscape: 'Imagem melhor. Celular deitado, vídeo horizontal, tela virada para quem opera.' }
+  };
   var Modes = {
     id: null,
     apply: function (mode) {
@@ -3120,15 +3166,35 @@
       safe(Settings.applyToPrompter);
       Settings.syncControls();
     },
+    phone: function () { return settings.phone === 'landscape' ? 'landscape' : 'portrait'; },
+    // cartao + posicao do celular = modo de verdade ("so ler" nao muda)
+    resolve: function (card) { return card !== 'plain' && Modes.phone() === 'landscape' ? card + '-h' : card; },
+    paint: function () {
+      var ph = Modes.phone();
+      Array.prototype.forEach.call(document.querySelectorAll('#mode-orient [data-orient]'), function (b) {
+        b.setAttribute('aria-checked', String(b.dataset.orient === ph));
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('#mode-picker [data-mode]'), function (b) {
+        var m = b.dataset.mode;
+        b.classList.toggle('last', Modes.resolve(m) === settings.mode);
+        if (MODE_TEXT[m]) b.querySelector('small').textContent = MODE_TEXT[m][ph];
+      });
+    },
+    setPhone: function (ph) {
+      if (ph !== 'landscape' && ph !== 'portrait') return;
+      settings.phone = ph;
+      saveSettings();
+      Modes.paint();
+      haptic(6);
+    },
     pick: function (id) {
       Modes.id = id;
-      Array.prototype.forEach.call(document.querySelectorAll('#mode-picker [data-mode]'), function (b) {
-        b.classList.toggle('last', b.dataset.mode === settings.mode);
-      });
+      Modes.paint();
       $('#mode-picker').hidden = false;
     },
     close: function () { $('#mode-picker').hidden = true; },
-    choose: function (mode) {
+    choose: function (card) {
+      var mode = Modes.resolve(card);
       Modes.close();
       Modes.apply(mode);
       // primeira gravacao (fora dos aparelhos da Robertha): pergunta onde guardar os videos
@@ -3139,6 +3205,8 @@
     }
   };
   $('#mode-picker').addEventListener('click', function (ev) {
+    var o = ev.target.closest('[data-orient]');
+    if (o) { Modes.setPhone(o.dataset.orient); return; }
     var b = ev.target.closest('[data-mode]');
     if (b) { Modes.choose(b.dataset.mode); return; }
     if (ev.target === this) Modes.close();
@@ -3191,6 +3259,110 @@
     }
   };
   $('#btn-flip-ok').addEventListener('click', function (ev) { ev.stopPropagation(); Flip.done(); });
+
+  /* ---- celular deitado (v9.6): "Deite o celular" e o lado da lente ----
+     Modos front-h e rear-h, video horizontal. Abrindo com o celular em pe, o aviso pede para deitar
+     e some sozinho pelo acelerometro (a gravidade passa para o eixo x do aparelho); sem sensor, o
+     botao "Já está". Se a tela ja estiver deitada ao abrir, o aviso nem aparece.
+     Lado da lente da frente pelo screen.orientation.type: landscape-primary = topo do aparelho a
+     esquerda = lente a esquerda (a maioria dos Android); landscape-secondary = lente a direita.
+     Layout (classes em #app, porque o aviso/toast fica fora do prompter):
+     - tp-lf (frente deitada) + tp-lens-l/r: o texto numa coluna encostada no lado da lente, a linha
+       de leitura perto do meio da altura (onde a lente esta); imagem, controles e avisos no lado oposto.
+     - tp-lr (traseira deitada): texto na largura toda, imagem e som numa coluna no canto, controles embaixo.
+     Com a tela ainda em pe nada disso entra: fica o layout em pe de sempre. */
+  var Lay = {
+    on: false,
+    since: 0,
+    decideTimer: 0,
+    needed: function () { return Prompter.isOpen() && landMode() && !!settings.record; },
+    isShown: function () { return !$('#laywarn').hidden; },
+    type: function () { var o = screen.orientation; return o && typeof o.type === 'string' ? o.type : ''; },
+    // a tela esta deitada?
+    flat: function () {
+      var t = Lay.type();
+      return t ? /^landscape/.test(t) : window.innerWidth > window.innerHeight;
+    },
+    // lado da lente da frente: 'l' (landscape-primary) ou 'r' (landscape-secondary)
+    side: function () {
+      var t = Lay.type();
+      if (t) return t === 'landscape-secondary' ? 'r' : 'l';
+      return window.orientation === -90 || window.orientation === 270 ? 'r' : 'l';
+    },
+    start: function () {
+      Lay.stop();
+      if (!Lay.needed() || Lay.flat()) return;
+      Lay.on = true;
+      Lay.since = 0;
+      window.addEventListener('devicemotion', Lay.motion);
+      Lay.decideTimer = setTimeout(Lay.show, 700);     // espera a primeira leitura do sensor
+    },
+    show: function () {
+      if (!Lay.on) return;
+      $('#laywarn').hidden = false;
+      // a tela segue o sensor enquanto o aviso esta na tela: deitando, o sistema pode girar sozinho (Lay.check)
+      if (screen.orientation && screen.orientation.unlock) safe(function () { screen.orientation.unlock(); });
+    },
+    motion: function (ev) {
+      var g = ev.accelerationIncludingGravity;
+      if (!g || g.x == null) return;
+      if (Math.abs(g.x) > 6 && Math.abs(g.x) > Math.abs(g.y || 0)) {   // deitado: a gravidade no eixo x do aparelho
+        if (!Lay.since) Lay.since = now();
+        if (now() - Lay.since > 350) Lay.done();
+      } else Lay.since = 0;
+    },
+    // a tela deitou (o sistema girou com o aviso na tela): o aviso sai
+    check: function () { if (Lay.on && Lay.flat()) Lay.done(); },
+    done: function () {
+      var was = Lay.isShown();
+      Lay.stop();
+      Rec.lockScreen();
+      Lay.paint();
+      if (was) Prompter.flash('i-check', 'Pronto');
+    },
+    stop: function () {
+      Lay.on = false;
+      clearTimeout(Lay.decideTimer);
+      window.removeEventListener('devicemotion', Lay.motion);
+      $('#laywarn').hidden = true;
+    },
+    paint: function () {
+      var app = $('#app');
+      var land = Prompter.isOpen() && landMode() && Lay.flat();
+      var front = land && settings.camFacing === 'user';
+      var r = front && Lay.side() === 'r';
+      app.classList.toggle('tp-lf', front);
+      app.classList.toggle('tp-lr', land && !front);
+      app.classList.toggle('tp-lens-l', front && !r);
+      app.classList.toggle('tp-lens-r', r);
+      Lay.measure();
+    },
+    // altura do painel de controles e largura da imagem: o aviso (toast) fica acima do painel, fora da imagem
+    measure: function () {
+      var app = $('#app');
+      if (!app.classList.contains('tp-lf') && !app.classList.contains('tp-lr')) {
+        app.style.removeProperty('--dockh');
+        app.style.removeProperty('--camw');
+        return;
+      }
+      app.style.setProperty('--dockh', $('#dock').offsetHeight + 'px');
+      app.style.setProperty('--camw', ($('#cam').hidden ? 0 : $('#cam').offsetWidth) + 'px');
+    },
+    clear: function () {
+      ['tp-lf', 'tp-lr', 'tp-lens-l', 'tp-lens-r'].forEach(function (c) { $('#app').classList.remove(c); });
+      Lay.measure();
+    }
+  };
+  $('#btn-lay-ok').addEventListener('click', function (ev) { ev.stopPropagation(); Lay.done(); });
+  // a tela girou (deitada para o outro lado antes de gravar, ou deitou com o aviso na tela): o layout acompanha
+  function onTurn() {
+    if (!Prompter.isOpen()) return;
+    Lay.check();
+    Lay.paint();
+    Rec.paint();
+  }
+  if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', onTurn);
+  window.addEventListener('orientationchange', onTurn);
 
   /* ---- botoes do operador ---- */
 
@@ -3376,7 +3548,7 @@
   // toque na tela: inicia/pausa. Com os controles escondidos, tocar na faixa deles so os mostra.
   VIEWS.prompter.addEventListener('click', function (ev) {
     // o video da ultima gravacao fica dentro desta tela: tocar nele (ou no Fechar) nao pode iniciar uma gravacao
-    if (ev.target.closest('.p-top,.dock,.rec-badge,.player,.flipwarn') || Player.isOpen() || Flip.isShown()) return;
+    if (ev.target.closest('.p-top,.dock,.rec-badge,.player,.flipwarn') || Player.isOpen() || Flip.isShown() || Lay.isShown()) return;
     if (Prompter.sheetOpen()) return;
     if (now() - Gestures.swipeAt < 450) return;
     if (Prompter.uiHidden()) {
@@ -3391,7 +3563,7 @@
     if (ev.pointerType === 'mouse' && Prompter.uiHidden()) Prompter.showUI();
   });
 
-  window.addEventListener('resize', function () { Prompter.relayout(); });
+  window.addEventListener('resize', function () { onTurn(); Prompter.relayout(); });
   if (window.ResizeObserver) {
     var ro = new ResizeObserver(function () { Prompter.relayout(); });
     ro.observe($('#stage'));
@@ -3451,6 +3623,12 @@
         if (!a) return false;
         if (ev && ev.cancelable) ev.preventDefault();
         if (!rec.repeat && a.id === 'playPause') Flip.done();
+        return true;
+      }
+      if (Lay.isShown()) {                 // aviso de deitar o celular: o mesmo
+        if (!a) return false;
+        if (ev && ev.cancelable) ev.preventDefault();
+        if (!rec.repeat && a.id === 'playPause') Lay.done();
         return true;
       }
       if (Player.isOpen()) {
@@ -4057,8 +4235,9 @@
       st.classList.toggle('mirror-h', !!settings.mirrorH);
       st.classList.toggle('mirror-v', !!settings.mirrorV);
       // camera frontal (ou linha de leitura embaixo): todos os controles no alto; a parte de baixo,
-      // perto da lente, fica so para a leitura
-      VIEWS.prompter.classList.toggle('ctl-top', settings.guidePos >= 60 || (!!settings.record && settings.camFacing === 'user'));
+      // perto da lente, fica so para a leitura. Deitado (v9.6) quem decide e o layout deitado (Lay)
+      VIEWS.prompter.classList.toggle('ctl-top', !landMode() && (settings.guidePos >= 60 || (!!settings.record && settings.camFacing === 'user')));
+      Lay.paint();
       $('#guide').hidden = !settings.guide;
       $('#readfade').hidden = !settings.dimRead;
       var m = $('#pc-mirror');
@@ -4090,6 +4269,7 @@
       radio('#s-recscreen', 'scr', settings.recScreen);
       radio('#s-campos', 'cpos', settings.camPos);
       radio('#s-talign', 'align', settings.textAlign);
+      $('#s-campos').closest('.field').hidden = landMode();   // deitado, a imagem tem lugar fixo (Lay)
       $('#s-record').checked = !!settings.record;
       $('#s-drive').checked = !!settings.driveUpload;
       $('#s-campreview').checked = !!settings.camPreview;
@@ -4541,5 +4721,5 @@
   }
 
   // gancho para teste automatizado (nao afeta o uso)
-  window.__tp = { Prompter: Prompter, Rec: Rec, Up: Up, UpLeave: UpLeave, Guard: Guard, Modes: Modes, Flip: Flip, Folder: Folder, SaveAsk: SaveAsk, Player: Player, Input: Input, Voice: Voice, GDocs: GDocs, Sound: Sound, Gestures: Gestures, settings: settings, keymap: function () { return keymap; }, toNatural: toNatural, swipeToken: swipeToken, Script: Script };
+  window.__tp = { Lay: Lay, Toast: Toast, Prompter: Prompter, Rec: Rec, Up: Up, UpLeave: UpLeave, Guard: Guard, Modes: Modes, Flip: Flip, Folder: Folder, SaveAsk: SaveAsk, Player: Player, Input: Input, Voice: Voice, GDocs: GDocs, Sound: Sound, Gestures: Gestures, settings: settings, keymap: function () { return keymap; }, toNatural: toNatural, swipeToken: swipeToken, Script: Script };
 })();
