@@ -366,6 +366,9 @@ body{
 #view-prompter.recording .cam{border-color:var(--rec);box-shadow:0 0 0 2px var(--rec)}
 /* o texto nao passa por baixo da camera */
 #view-prompter.has-cam:not(.cam-above):not(.cam-top) .scroller{padding-right:calc(var(--pad,6%) + var(--camh) * var(--camratio,.5625) + 16px)}
+/* em pe com a imagem no canto, a linha de leitura para antes da imagem (v9.7): a coluna da imagem fica
+   livre para o aviso do som, sem cobrir a linha */
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.has-cam:not(.cam-above):not(.cam-top) .guide{right:calc(16px + var(--safe-r) + var(--camh) * var(--camratio,.5625))}
 /* linha de leitura embaixo (lente embaixo, celular de cabeca para baixo): a imagem fica logo acima da linha */
 #view-prompter.cam-above{--camh:min(30vh,46vw)}
 #view-prompter.cam-above .cam{
@@ -437,29 +440,44 @@ body{
 .rec-badge.nosound{background:var(--rec);border-color:#fff;animation:sndpulse 1s steps(2,jump-none) infinite}
 .rec-badge.nosound i{background:#fff}
 .rec-badge.nosound .ic{color:#fff}
+/* sem som o medidor do selo fica parado: sai, e o selo "SEM SOM" nao fica mais largo que o "REC" (v9.7) */
+.rec-badge.nosound .rec-vu{display:none}
 @keyframes sndpulse{50%{background:#8f1409}}
-/* faixa grande, sempre a vista com a camera ligada: SOM OK (verde), SOM BAIXO (ambar), SEM SOM (vermelho) */
+/* aviso do som, sempre a vista com a camera ligada (v9.7: menor, para celular pequeno).
+   SOM OK (verde) e OUVINDO… viram um selo pequeno (regra no fim do arquivo); SOM BAIXO (ambar) e
+   SEM SOM (vermelho, pisca) seguem chamando a atencao, com tamanho pela largura e pela altura da tela.
+   Em pe, o lugar e escolhido pelo app (SndSpot, classe .placed): nunca por cima do texto perto da
+   linha de leitura, dos controles a vista nem do selo REC. Deitado, o lugar e o do layout deitado. */
 .snd-alert{
   position:absolute;left:50%;transform:translateX(-50%);z-index:5;
-  bottom:calc(100% - var(--guidey,33%) + var(--linebox,70px) * .5 + 8px);
-  width:min(560px,calc(100% - 24px));
-  display:flex;align-items:center;gap:14px;padding:12px 18px 14px;border-radius:18px;
+  bottom:calc(100% - var(--guidey,33%) + var(--linebox,70px) * 1.5 + 8px);
+  width:min(560px,calc(100% - 24px));box-sizing:border-box;
+  display:flex;align-items:center;gap:10px;padding:9px 12px 10px;border-radius:16px;
   border:3px solid transparent;
   background:var(--rec);color:#fff;box-shadow:0 8px 30px rgba(0,0,0,.6);pointer-events:none;
 }
+.snd-alert.placed{left:0;top:0;bottom:auto;transform:none}
 .snd-alert[hidden]{display:none}
-.snd-alert .ic{width:44px;height:44px;flex:none}
-.snd-alert div{display:flex;flex-direction:column;gap:8px;min-width:0;flex:1}
-.snd-alert b{font-family:var(--font-display);font-weight:700;font-size:clamp(34px,11vw,56px);line-height:1;letter-spacing:.03em;white-space:nowrap}
-#snd-sub{font-size:16px;line-height:1.3}
+.snd-alert .ic{width:clamp(24px,8vw,34px);height:clamp(24px,8vw,34px);flex:none}
+.snd-alert div{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
+.snd-alert b{font-family:var(--font-display);font-weight:700;font-size:clamp(20px,min(7.2vw,4.4vh),34px);line-height:1.05;letter-spacing:.03em}
+#snd-sub{font-size:clamp(12.5px,3.6vw,15px);line-height:1.3}
 #snd-sub:empty{display:none}
-.snd-vu{display:block;height:10px;border-radius:5px;background:rgba(255,255,255,.2);overflow:hidden}
+.snd-vu{display:block;flex:none;height:6px;border-radius:3px;background:rgba(255,255,255,.2);overflow:hidden}
 .snd-vu i{display:block;height:100%;background:currentColor;transform-origin:left center;transform:scaleX(0);transition:transform .08s linear}
-.snd-alert[data-st=ok]{background:rgba(0,0,0,.78);border-color:var(--ok);color:var(--ok)}
-.snd-alert[data-st=wait]{background:rgba(0,0,0,.78);border-color:rgba(255,255,255,.35);color:var(--fg-dim)}
+/* coluna estreita (a da imagem da camera, em celular pequeno com os controles a vista): sem icone, o titulo quebra */
+.snd-alert.narrow{gap:6px;padding:7px 8px 8px;border-radius:12px}
+.snd-alert.narrow .ic{display:none}
+.snd-alert.narrow b{font-size:clamp(17px,5.4vw,21px);hyphens:auto;overflow-wrap:anywhere}
+.snd-alert.narrow[data-st=nap] b{font-size:clamp(14px,4.4vw,18px)}
+.snd-alert.narrow #snd-sub{font-size:12px;line-height:1.28}
+/* sem lugar para a explicacao: so o titulo (o selo REC tambem avisa) */
+.snd-alert.tight #snd-sub{display:none}
+.snd-alert[data-st=ok]{background:rgba(0,0,0,.72);border-color:var(--ok);color:var(--ok)}
+.snd-alert[data-st=wait]{background:rgba(0,0,0,.72);border-color:rgba(255,255,255,.35);color:var(--fg-dim)}
 /* camera desligada por ociosidade (v9.4): aviso calmo, sem medidor, titulo menor que quebra linha */
 .snd-alert[data-st=nap]{background:rgba(0,0,0,.82);border-color:rgba(255,255,255,.35);color:var(--fg)}
-.snd-alert[data-st=nap] b{font-size:clamp(24px,7vw,40px);white-space:normal}
+.snd-alert[data-st=nap] b{font-size:clamp(17px,min(5.6vw,3.4vh),26px)}
 .snd-alert[data-st=nap] .snd-vu{display:none}
 .snd-alert[data-st=low]{background:var(--accent);color:var(--accent-ink)}
 .snd-alert[data-st=low] .snd-vu{background:rgba(0,0,0,.18)}
@@ -811,12 +829,28 @@ body{
 #app.tp-lr #view-prompter .pause-pill,#app.tp-lr #view-prompter .flash{left:calc((100% - var(--camcol)) / 2)}
 #app.tp-lr .toast{bottom:calc(var(--dockh,174px) + 8px + var(--safe-b));left:calc((100% - var(--camw,0px) - 24px) / 2);max-width:calc(100% - var(--camw,0px) - 56px)}
 
-/* som em faixa compacta (deitado nao cabe a faixa de 56 px) */
+/* som em faixa compacta (deitado nao cabe a faixa de 56 px); v9.7: o titulo acompanha a altura da tela */
 #app.tp-lf .snd-alert,#app.tp-lr .snd-alert{gap:10px;padding:8px 10px 10px;border-radius:14px;align-items:flex-start}
 #app.tp-lf .snd-alert div,#app.tp-lr .snd-alert div{gap:6px}
-#app.tp-lf .snd-alert b,#app.tp-lr .snd-alert b{font-size:24px;white-space:normal}
-#app.tp-lf .snd-alert[data-st=nap] b,#app.tp-lr .snd-alert[data-st=nap] b{font-size:20px}
+#app.tp-lf .snd-alert b,#app.tp-lr .snd-alert b{font-size:clamp(18px,6.2vh,24px);white-space:normal}
+#app.tp-lf .snd-alert[data-st=nap] b,#app.tp-lr .snd-alert[data-st=nap] b{font-size:clamp(16px,5.2vh,20px)}
 #app.tp-lf #snd-sub,#app.tp-lr #snd-sub{font-size:13px;line-height:1.25}
-#app.tp-lf .snd-vu,#app.tp-lr .snd-vu{height:8px}
+#app.tp-lf .snd-vu,#app.tp-lr .snd-vu{height:6px}
 #app.tp-lf .snd-alert .ic{display:none}
 #app.tp-lr .snd-alert .ic{width:26px;height:26px}
+/* tela deitada baixa (640x360): a explicacao inteira do SEM SOM cabe no painel */
+@media (max-height:400px){
+  #app.tp-lf #snd-sub,#app.tp-lr #snd-sub{font-size:12px;line-height:1.2}
+  #app.tp-lf .snd-alert,#app.tp-lr .snd-alert{padding:7px 9px 8px}
+}
+
+/* SOM OK e OUVINDO…: selo pequeno e discreto, com medidor fino, em pe e deitado (v9.7). Fica por ultimo
+   para valer tambem sobre as regras do layout deitado. */
+#view-prompter .snd-alert:is([data-st=ok],[data-st=wait]){
+  width:auto;gap:6px;padding:4px 7px 5px;border-width:1.5px;border-radius:10px;align-items:center;
+  box-shadow:0 2px 10px rgba(0,0,0,.45);
+}
+#view-prompter .snd-alert:is([data-st=ok],[data-st=wait]) .ic{display:none}
+#view-prompter .snd-alert:is([data-st=ok],[data-st=wait]) div{gap:3px}
+#view-prompter .snd-alert:is([data-st=ok],[data-st=wait]) b{font-size:14px;line-height:1.05;letter-spacing:.02em;white-space:nowrap}
+#view-prompter .snd-alert:is([data-st=ok],[data-st=wait]) .snd-vu{height:3px;border-radius:2px}

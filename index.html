@@ -181,7 +181,7 @@
       <div class="player-bar"><span id="player-name"></span><button class="btn" id="btn-player-close" type="button">Fechar</button></div>
     </div>
     <button class="rec-badge" id="rec-badge" type="button" aria-label="Gravando. Toque para parar." hidden><i aria-hidden="true"></i><span id="rec-label">REC</span> <span id="rec-time">00:00</span><span class="rec-vu" aria-hidden="true"><b id="rec-vu"></b></span><svg class="ic" aria-hidden="true"><use href="#i-stop"></use></svg></button>
-    <!-- o som da gravacao: faixa grande logo acima da linha de leitura, onde a pessoa esta olhando -->
+    <!-- o som da gravacao: selo pequeno (SOM OK) ou faixa de alerta (SOM BAIXO, SEM SOM), fora da linha de leitura (v9.7) -->
     <div class="snd-alert" id="snd-alert" role="status" aria-live="assertive" hidden>
       <svg class="ic" aria-hidden="true"><use id="snd-icon" href="#i-mic"></use></svg>
       <div><b id="snd-title"></b><span class="snd-vu" aria-hidden="true"><i id="snd-vu"></i></span><span id="snd-sub"></span></div>
@@ -251,6 +251,7 @@
         <p class="hint" id="docs-status" aria-live="polite"></p>
         <button class="btn primary block" id="btn-docs-relogin" type="button" hidden>Entrar de novo</button>
         <button class="btn primary block" id="btn-docs-choose" type="button" hidden>Escolher no Google Drive</button>
+        <p class="hint small" id="docs-pick-hint" hidden>Não achou? Escreva parte do nome na busca antes de tocar no botão, ou cole na busca o link do documento. A janela do Google mostra só documentos do Google Docs: arquivo do Word (.docx) não aparece.</p>
         <ul class="list" id="docs-list" aria-label="Documentos do Google Docs"></ul>
         <p class="foot">Documentos de <span id="docs-who">sua conta Google</span>. <button class="linkbtn" id="btn-docs-logout" type="button">Desconectar esta conta</button></p>
       </div>

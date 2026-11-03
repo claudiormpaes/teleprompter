@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v9.6';
+  var APP_VERSION = 'v9.7';
   var K_SCRIPTS = 'tp.scripts';
   var K_SETTINGS = 'tp.settings';
   var K_KEYS = 'tp.keys2';          // v6: deslizes passaram a ser medidos com o celular em pe
@@ -833,7 +833,11 @@
       GDocs.paintAccts();
       $('#docs-who').textContent = acct;
       $('#btn-docs-relogin').hidden = connected;
-      $('#btn-docs-choose').hidden = !connected || !GDocs.picks(acct);
+      var picks = connected && GDocs.picks(acct);
+      $('#btn-docs-choose').hidden = !picks;
+      $('#docs-pick-hint').hidden = !picks;
+      // conta que escolhe pela janela do Google: a busca tambem aceita o link do documento (v9.7)
+      $('#docs-q').placeholder = GDocs.picks(acct) ? 'Buscar ou colar o link do documento…' : 'Buscar pelo nome do documento…';
       if (!connected) {
         GDocs.files = [];
         $('#docs-list').innerHTML = '';
@@ -880,7 +884,7 @@
       GDocs.api('files?' + params.toString(), acct).then(function (r) { return r.json(); }).then(function (j) {
         if (acct !== GDocs.cur()) return;                   // trocou de conta no meio
         GDocs.loading = false;
-        GDocs.files = (j && j.files) || [];
+        GDocs.files = GDocs.newestFirst((j && j.files) || []);
         GDocs.filesOf = acct;
         GDocs.render();
       }).catch(function (e) {
@@ -891,6 +895,32 @@
         GDocs.render();
         $('#docs-status').textContent = 'Não deu para listar os documentos. Toque em recarregar.';
       });
+    },
+    /* do mais recente para o mais antigo, pela data de modificacao do documento (v9.7). O Drive ja manda
+       nessa ordem (orderBy modifiedTime desc); aqui a ordem fica garantida em toda lista que o app mostra,
+       inclusive a dos ja trazidos das contas que escolhem pela janela do Google. Empate: pelo nome. */
+    newestFirst: function (files) {
+      var t = function (f) { var v = Date.parse(f && f.modifiedTime); return isNaN(v) ? 0 : v; };
+      return files.slice().sort(function (a, b) { return t(b) - t(a) || String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR'); });
+    },
+    // link de um documento do Google Docs (docs.google.com/document/d/ID/... ou drive.google.com/open?id=ID)
+    linkId: function (s) {
+      var m = /docs\.google\.com\/document\/(?:u\/\d+\/)?d\/([\w-]{20,})/.exec(s || '') || /drive\.google\.com\/.*[?&]id=([\w-]{20,})/.exec(s || '');
+      return m ? m[1] : '';
+    },
+    // busca da tela do Docs: com link colado, a conta que escolhe pela janela do Google abre a janela ja nele.
+    // typed: tecla a tecla (o link digitado so vale no Enter, para nao abrir com o endereco pela metade)
+    search: function (now, typed) {
+      clearTimeout(GDocs.searchTimer);
+      var q = $('#docs-q'), id = GDocs.linkId(q.value), acct = GDocs.cur();
+      if (id && !typed && GDocs.picks(acct) && GDocs.token(acct)) {
+        // link de arquivo do Word aberto no Google Docs (rtpof=true): a janela so mostra Google Docs
+        if (/[?&]rtpof=true/.test(q.value)) { Toast.show('Esse link é de um arquivo do Word (.docx). No Google Docs, salve como Documento Google e cole o link novo.'); return; }
+        q.value = '';
+        GDocs.choose(acct, id);
+        return;
+      }
+      if (now) GDocs.load(); else GDocs.searchTimer = setTimeout(GDocs.load, 450);
     },
     render: function () {
       var list = $('#docs-list'), st = $('#docs-status');
@@ -903,8 +933,9 @@
       var term = ($('#docs-q').value || '').trim(), picks = GDocs.picks(GDocs.cur());
       // conta que escolhe pela janela do Google: a lista so tem os documentos que ja vieram para o app
       st.textContent = GDocs.files.length
-        ? (term ? GDocs.files.length + ' documento(s) com “' + term + '”.' : picks ? 'Já trazidos para o app. Para outro, toque em “Escolher no Google Drive”.' : 'Mais recentes primeiro. Toque para trazer.')
-        : (term ? 'Nenhum documento com “' + term + '” no nome.' : picks ? 'Toque em “Escolher no Google Drive” e escolha o roteiro.' : 'Nenhum documento do Google Docs nesta conta.');
+        ? (term ? GDocs.files.length + ' documento(s) com “' + term + '”.' : picks ? 'Já trazidos para o app, do mais recente para o mais antigo. Para outro, toque em “Escolher no Google Drive”.' : 'Mais recentes primeiro. Toque para trazer.')
+        : (term ? (picks ? 'Nenhum dos já trazidos tem “' + term + '” no nome. Toque em “Escolher no Google Drive” para buscar no Drive.' : 'Nenhum documento com “' + term + '” no nome.')
+          : picks ? 'Toque em “Escolher no Google Drive” e escolha o roteiro.' : 'Nenhum documento do Google Docs nesta conta.');
       GDocs.files.forEach(function (f) {
         var li = el('li');
         var b = el('button', 'doc-item');
@@ -940,7 +971,11 @@
       }
       return GDocs.pickerLib;
     },
-    choose: function (acct, fileId, done) {
+    /* query (v9.7): o que a pessoa escreveu na busca do app; a janela ja abre buscando (View.setQuery).
+       A janela do Google nao deixa o app escolher a ordem da lista: a referencia do Picker nao tem
+       nenhuma opcao de ordenacao (DocsView, PickerBuilder, Feature). Para o documento certo aparecer
+       primeiro, o app oferece a busca pelo nome e o link colado (setFileIds: a janela mostra so ele). */
+    choose: function (acct, fileId, done, query) {
       acct = acct || GDocs.cur();
       if (!navigator.onLine) { Toast.show('Sem internet: o Google Drive precisa de conexão.'); return; }
       if (!GDocs.token(acct)) { GDocs.login({ do: 'choose', acct: acct }); return; }
@@ -950,6 +985,7 @@
         // so documentos do Google Docs: a vista DOCUMENTS tambem mostra .txt, .md e .docx, que o app nao traz
         var view = new P.DocsView(P.ViewId.DOCUMENTS).setMimeTypes(DOC_MIME).setMode(P.DocsViewMode.LIST);
         if (fileId && view.setFileIds) view.setFileIds(fileId);
+        else if (query && view.setQuery) view.setQuery(query);
         new P.PickerBuilder()
           .addView(view)
           .enableFeature(P.Feature.NAV_HIDDEN)
@@ -1839,18 +1875,19 @@
   $('#btn-docs-login-ext').addEventListener('click', function () { GDocs.login({ do: 'browse', add: true, client: 'ext' }, true); });
   $('#btn-docs-cancel').addEventListener('click', function () { GDocs.adding = false; GDocs.enter(); });
   $('#btn-docs-relogin').addEventListener('click', function () { GDocs.login({ do: 'browse', acct: GDocs.cur() }, true); });
-  $('#btn-docs-choose').addEventListener('click', function () { GDocs.choose(GDocs.cur()); });
+  $('#btn-docs-choose').addEventListener('click', function () {
+    var term = ($('#docs-q').value || '').trim();
+    if (GDocs.linkId(term)) { GDocs.search(true); return; }
+    GDocs.choose(GDocs.cur(), null, null, term);
+  });
   $('#btn-docs-logout').addEventListener('click', function () { GDocs.logout(GDocs.cur()); });
   $('#btn-docs-reload').addEventListener('click', function () {
     if (GDocs.adding || !GDocs.accounts().length) return;
     if (GDocs.token(GDocs.cur())) GDocs.load();
     else { GDocs.autoTried = {}; GDocs.enter(); }
   });
-  $('#docs-q').addEventListener('input', function () {
-    clearTimeout(GDocs.searchTimer);
-    GDocs.searchTimer = setTimeout(GDocs.load, 450);
-  });
-  $('#docs-q').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { clearTimeout(GDocs.searchTimer); GDocs.load(); } });
+  $('#docs-q').addEventListener('input', function (ev) { GDocs.search(false, ev.inputType === 'insertText'); });
+  $('#docs-q').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') GDocs.search(true); });
   $('#btn-gdoc-refresh').addEventListener('click', function () { Editor.closeMenu(); Editor.saveNow(); GDocs.refresh(Editor.id); });
   $('#btn-gdoc-refresh2').addEventListener('click', function () { Editor.saveNow(); GDocs.refresh(Editor.id); });
 
@@ -2034,6 +2071,7 @@
       Prompter.buildTicks();
       Prompter.paint();
       Prompter.updateMeta(true);
+      SndSpot.place();          // a linha de leitura ou a tela mudaram: o aviso do som procura o lugar de novo
     },
     pxPerSec: function () { return settings.wpm * Prompter.pxPerWord / 60; },
 
@@ -2764,10 +2802,10 @@
        som, nem nas pausas da fala o pico desce de -54 dBFS (22/10 ao ar livre e 27/10);
      - gravando com o texto rolando e nada acima de -45 dBFS por 12 s: aviso de som baixo (voz
        nenhuma chegando). Pausado ou na contagem nao conta: ali o silencio e normal.
-     Com a camera ligada, uma faixa grande logo acima da linha de leitura diz o tempo todo como esta
-     o som: SOM OK (verde, com o medidor), SOM BAIXO (ambar) ou SEM SOM (vermelho, pisca). "SOM OK"
-     so aparece depois que chegou som de verdade; antes disso a faixa diz "OUVINDO…". Sem som, o selo
-     do REC tambem acende e, gravando, o celular vibra uma vez.
+     Com a camera ligada, o aviso diz o tempo todo como esta o som: SOM OK (selo verde pequeno, com o
+     medidor), SOM BAIXO (faixa ambar) ou SEM SOM (faixa vermelha, pisca). "SOM OK" so aparece depois
+     que chegou som de verdade; antes disso o selo diz "OUVINDO…". Sem som, o selo do REC tambem acende
+     e, gravando, o celular vibra uma vez. Onde o aviso fica: SndSpot (v9.7, fora da linha de leitura).
      Microfone que cai entre uma tomada e outra (receptor tirado e posto de volta): pede de novo. */
   var Sound = {
     ctx: null, an: null, src: null, buf: null, track: null, timer: 0,
@@ -2914,6 +2952,7 @@
       b.classList.toggle('nosound', st === 'dead');
       b.classList.toggle('lowsound', st === 'low');
       $('#rec-label').textContent = st === 'dead' ? 'SEM SOM' : 'REC';
+      SndSpot.place();                                              // o tamanho mudou com o estado: procura o lugar
     },
     // barrinhas no selo do REC e na faixa: o som chegando (de -60 a 0 dBFS)
     meter: function () {
@@ -2923,6 +2962,164 @@
       $('#snd-vu').style.transform = s;
     }
   };
+
+  /* ---- onde fica o aviso do som com o celular em pe (v9.7) ----
+     03/11: "O alerta de som esta muito grande e atrapalhando quem tem celular menor". So a apresentacao
+     muda; a medicao (Sound) e a mesma. O aviso nunca fica por cima do texto perto da linha de leitura (a
+     linha, a de antes e a de depois, na coluna do texto), dos controles a vista nem do selo REC.
+     - SOM OK e OUVINDO…: selo pequeno colado na imagem da camera (ao lado dela, se esta no alto; embaixo
+       dela, se esta no canto). Sem imagem, no primeiro espaco livre do alto.
+     - SOM BAIXO, SEM SOM e CAMERA DESLIGADA: faixa na largura da tela, no espaco livre. Linha embaixo
+       (camera da frente): logo acima do texto ja lido. Linha no alto (traseira): no pe da tela. Pode cobrir
+       a imagem da camera, nunca o texto. Sem espaco na largura (celular pequeno com os controles a vista):
+       na coluna da imagem, estreita; sem espaco nem assim, so o titulo (o selo REC tambem avisa).
+     O lugar e refeito quando muda o estado do som, os controles aparecem ou somem, a gravacao comeca ou
+     para, a tela gira ou o texto muda de tamanho. Deitado, o lugar e o do layout deitado (CSS). */
+  var SndSpot = {
+    M: 6,              // folga entre o aviso e o que ele nao pode cobrir
+    probe: null,
+    // areas seguras da tela (furo da camera, barra de gestos) em px
+    safe: function () {
+      var p = SndSpot.probe;
+      if (!p) {
+        p = SndSpot.probe = document.createElement('div');
+        p.setAttribute('aria-hidden', 'true');
+        p.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l)';
+        VIEWS.prompter.appendChild(p);
+      }
+      var cs = getComputedStyle(p);
+      return { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
+    },
+    rect: function (n) {
+      if (!n || n.hidden || !n.getClientRects().length) return null;
+      var r = n.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null;
+    },
+    reset: function (box) {
+      box.classList.remove('placed', 'narrow', 'tight');
+      box.style.left = box.style.top = box.style.width = box.style.maxWidth = '';
+    },
+    // tamanho do aviso numa faixa de largura lw (o texto quebra conforme a largura)
+    size: function (box, small, lw, narrow, tight) {
+      box.classList.add('placed');
+      box.classList.toggle('narrow', narrow);
+      box.classList.toggle('tight', tight);
+      box.style.left = box.style.top = '0px';
+      box.style.maxWidth = lw + 'px';
+      box.style.width = small ? '' : Math.min(lw, 560) + 'px';
+      var t = $('#snd-title');
+      return { w: box.offsetWidth, h: box.offsetHeight, ok: t.scrollWidth <= t.clientWidth + 1 && box.offsetWidth <= lw + 1 };
+    },
+    // trechos livres na altura de uma faixa vertical [l, r]
+    gaps: function (lane, obs, top, bottom) {
+      var M = SndSpot.M, out = [], y = top;
+      obs.filter(function (o) { return o.r > lane.l + 1 && o.l < lane.r - 1 && o.b + M > top && o.t - M < bottom; })
+        .map(function (o) { return [o.t - M, o.b + M]; })
+        .sort(function (a, b) { return a[0] - b[0]; })
+        .forEach(function (s) { if (s[0] > y) out.push([y, s[0]]); y = Math.max(y, s[1]); });
+      if (bottom > y) out.push([y, bottom]);
+      return out;
+    },
+    hit: function (a, o) {
+      var w = Math.min(a.r, o.r) - Math.max(a.l, o.l), h = Math.min(a.b, o.b) - Math.max(a.t, o.t);
+      return w > 0.5 && h > 0.5 ? w * h : 0;
+    },
+    place: function () {
+      var box = $('#snd-alert'), app = $('#app'), vp = VIEWS.prompter;
+      if (box.hidden || !Prompter.isOpen() || app.classList.contains('tp-lf') || app.classList.contains('tp-lr')) {
+        SndSpot.reset(box);
+        // deitado: o lugar e do CSS; se a explicacao nao couber no espaco, fica so o titulo (nada cortado)
+        if (!box.hidden && box.scrollHeight > box.clientHeight + 1) box.classList.add('tight');
+        return;
+      }
+      var st = box.dataset.st, small = st === 'ok' || st === 'wait', R = SndSpot.rect;
+      var V = vp.getBoundingClientRect(), S = SndSpot.safe();
+      if (!V.width || !V.height) return;
+      var top = V.top + 8 + S.t, bottom = V.bottom - 8 - S.b, left = V.left + 8 + S.l, right = V.right - 8 - S.r;
+      var g = R($('#guide')), c = R($('#content')), cam = R($('#cam')), lb = Prompter.lineBox || 0;
+      var hard = [], zt = top, zb = top;
+      if (g) {
+        zt = g.t - lb; zb = g.b + lb;
+        hard.push({ l: g.l, r: g.r, t: g.t, b: g.b, k: 10 });                                   // a linha de leitura
+        hard.push({ l: c ? c.l : g.l, r: c ? c.r : g.r, t: zt, b: zb, k: 10 });                 // o texto em volta dela
+      }
+      if (!Prompter.uiHidden()) {
+        Array.prototype.forEach.call(document.querySelectorAll('#p-top > *, #speed, #transport, #scrub'), function (n) { var r = R(n); if (r) hard.push(r); });
+      }
+      ['#rec-badge', '#pause-pill', '#voice-flag'].forEach(function (s) { var r = R($(s)); if (r) hard.push(r); });
+      // o selo nao cobre a imagem da camera; a faixa de alerta pode cobrir (o texto, nunca)
+      var obs = small && cam ? hard.concat([cam]) : hard;
+      var centered = vp.classList.contains('cam-top') || vp.classList.contains('cam-above');
+      var lanes = [{ k: 'full', l: left, r: right }];
+      // imagem no canto: a coluna dela (col) e, mais larga, do fim do texto ate a borda (col2, abaixo da linha)
+      if (cam && centered) lanes.push({ k: 'side', l: left, r: cam.l - 4, end: true }, { k: 'side2', l: cam.r + 4, r: right });
+      else if (cam && g && cam.l >= g.r - 1) {
+        lanes.push({ k: 'col', l: Math.max(cam.l - 4, g.r + 4), r: right, end: true });
+        if (c) lanes.push({ k: 'col2', l: c.r + SndSpot.M, r: right, end: true });
+      } else if (cam && g && cam.r <= g.l + 1) {
+        lanes.push({ k: 'col', l: left, r: Math.min(cam.r + 4, g.l - 4) });
+        if (c) lanes.push({ k: 'col2', l: left, r: c.l - SndSpot.M });
+      }
+      var H = V.height, lineLow = g ? (g.t + g.b) / 2 > V.top + H / 2 : false;
+      var home = !cam ? top : centered ? cam.t : cam.b + SndSpot.M;
+      var lanePref = small ? { side: 0, col: 0, col2: 1, side2: 4, full: cam ? 12 : 0 } : { full: 0, col: 15, col2: 16, side: 25, side2: 26 };
+      var pref = function (k, y, h) {
+        var p = lanePref[k];
+        if (small) return p + Math.abs(y - home) / H * 10;
+        var b = y + h, above = b <= zt + 1, below = y >= zb - 1;
+        if (lineLow) return p + (above ? (zt - b) / H * 10 : below ? 10 + (bottom - b) / H * 10 : 6);
+        return p + (below ? (bottom - b) / H * 10 : above ? 10 + (zt - b) / H * 10 : 6);
+      };
+      var best = null, tries = small ? [false] : [false, true];
+      for (var i = 0; i < tries.length && !best; i++) {
+        lanes.forEach(function (ln) {
+          var lw = ln.r - ln.l;
+          if (lw < 60) return;
+          var sz = SndSpot.size(box, small, lw, !small && lw < 240, tries[i]);
+          if (!sz.ok) return;
+          var x = small ? (ln.end ? ln.r - sz.w : ln.l) : ln.l + (lw - sz.w) / 2;
+          SndSpot.gaps(ln, obs, top, bottom).forEach(function (gp) {
+            if (gp[1] - gp[0] < sz.h) return;
+            var ys = [gp[0], gp[1] - sz.h];
+            if (small) ys.push(clamp(home, gp[0], gp[1] - sz.h));
+            ys.forEach(function (y) {
+              var p = pref(ln.k, y, sz.h);
+              if (!best || p < best.p) best = { p: p, x: x, y: y, lw: lw, narrow: !small && lw < 240, tight: tries[i] };
+            });
+          });
+        });
+      }
+      if (!best) {
+        // nenhum espaco livre de verdade: o lugar que menos cobre (o texto da linha pesa mais)
+        lanes.forEach(function (ln) {
+          var lw = ln.r - ln.l;
+          if (lw < 60) return;
+          var narrow = !small && lw < 240, sz = SndSpot.size(box, small, lw, narrow, !small);
+          var x = small ? (ln.end ? ln.r - sz.w : ln.l) : ln.l + (lw - sz.w) / 2;
+          var ys = [top, bottom - sz.h];
+          SndSpot.gaps(ln, obs, top, bottom).forEach(function (gp) { ys.push(gp[0], gp[1] - sz.h); });
+          ys.forEach(function (y) {
+            y = clamp(y, top, Math.max(top, bottom - sz.h));
+            var a = { l: x, r: x + sz.w, t: y, b: y + sz.h }, p = 0;
+            obs.forEach(function (o) { p += SndSpot.hit(a, o) * (o.k || 1); });
+            p += pref(ln.k, y, sz.h);
+            if (!best || p < best.p) best = { p: p, x: x, y: y, lw: lw, narrow: narrow, tight: !small };
+          });
+        });
+      }
+      if (!best) { SndSpot.reset(box); return; }
+      SndSpot.size(box, small, best.lw, best.narrow, best.tight);
+      box.style.left = Math.round(best.x - V.left) + 'px';
+      box.style.top = Math.round(best.y - V.top) + 'px';
+    }
+  };
+  // controles que aparecem ou somem, selo REC, selo de pausa, imagem, tela deitada: o aviso procura o lugar de novo
+  (function () {
+    var mo = new MutationObserver(function () { if (!$('#snd-alert').hidden) SndSpot.place(); });
+    mo.observe(VIEWS.prompter, { attributes: true, attributeFilter: ['class'] });
+    mo.observe($('#app'), { attributes: true, attributeFilter: ['class'] });
+    ['#rec-badge', '#pause-pill', '#voice-flag', '#cam'].forEach(function (s) { mo.observe($(s), { attributes: true, attributeFilter: ['hidden', 'class'] }); });
+  })();
 
   /* ---- ver a ultima gravacao: confere a tomada ali mesmo, sem sair do app ----
      Com o player aberto, o pedal da direita toca e pausa o video e o da esquerda fecha:
@@ -4721,5 +4918,5 @@
   }
 
   // gancho para teste automatizado (nao afeta o uso)
-  window.__tp = { Lay: Lay, Toast: Toast, Prompter: Prompter, Rec: Rec, Up: Up, UpLeave: UpLeave, Guard: Guard, Modes: Modes, Flip: Flip, Folder: Folder, SaveAsk: SaveAsk, Player: Player, Input: Input, Voice: Voice, GDocs: GDocs, Sound: Sound, Gestures: Gestures, settings: settings, keymap: function () { return keymap; }, toNatural: toNatural, swipeToken: swipeToken, Script: Script };
+  window.__tp = { Lay: Lay, SndSpot: SndSpot, Toast: Toast, Prompter: Prompter, Rec: Rec, Up: Up, UpLeave: UpLeave, Guard: Guard, Modes: Modes, Flip: Flip, Folder: Folder, SaveAsk: SaveAsk, Player: Player, Input: Input, Voice: Voice, GDocs: GDocs, Sound: Sound, Gestures: Gestures, settings: settings, keymap: function () { return keymap; }, toNatural: toNatural, swipeToken: swipeToken, Script: Script };
 })();

@@ -79,6 +79,19 @@ conta anotada, lê pela principal.
   entrada a janela abre sozinha. "Atualizar" de documento não liberado (trazido no tempo do
   `drive.readonly`) oferece "Escolher", com a janela já nele (`setFileIds`). Conta `ext` cujo
   token ainda traz `drive.readonly` (login do modo de teste) continua com a lista completa.
+- **Ordem e busca (v9.7, 03/11/2026).** Pedido do Cláudio, porque o Felipe não achava os documentos:
+  "force a organização do mais recente para o mais antigo".
+  - Toda lista que o app monta (a do `drive.readonly`, a dos já trazidos pelo `drive.file`, a de cada
+    conta) fica do mais recente para o mais antigo pela data de modificação do documento. O Drive já
+    manda assim (`orderBy: 'modifiedTime desc'`) e o app ordena de novo (`GDocs.newestFirst`).
+  - A janela do Google (Picker) **não tem opção de ordem**: a referência
+    (https://developers.google.com/workspace/drive/picker/reference) não traz nenhum método de
+    ordenação em `DocsView`, `PickerBuilder` ou `Feature`. A ordem lá dentro é a do Google.
+  - Para o documento certo aparecer primeiro, há dois caminhos com métodos documentados. O que a
+    pessoa escreve na busca do app vai para a janela já buscando (`View.setQuery`). O link do
+    documento colado na busca abre a janela só nele (`setFileIds`, o mesmo do "Atualizar").
+  - Dica na tela: arquivo do Word (.docx) não aparece, porque a janela só mostra Google Docs
+    (`setMimeTypes`).
 - No endereço público, a tela de entrar mostra só "Entrar com o Google". O botão da conta
   `@claudiopaes.com.br` aparece em localhost/127.0.0.1 ou com uma conta do domínio já conectada.
 - O app interno do `dashboard-de-mercado` NÃO pode virar externo: a agenda do CRM usa ele e, em
@@ -95,11 +108,32 @@ arquivo, 10 vezes por segundo, desde que a câmera liga:
   ficam entre -83 e -80 dBFS; com o Hollyland funcionando o pico nunca desceu de -54 dBFS, nem nas
   pausas da fala.
 - **Som muito baixo** (âmbar): gravando com o texto rolando e nada acima de -45 dBFS por 12 s.
-- A faixa aparece logo acima da linha de leitura; o selo do REC vira "SEM SOM" e tem um medidor.
+- O selo do REC vira "SEM SOM" e tem um medidor (até a v9.6 a faixa ficava logo acima da linha de leitura).
 - **v9.0 (27/10, pedido do Cláudio): faixa grande o tempo todo** com a câmera ligada, letra de 34 a
   56 px e medidor largo: **SOM OK** (verde, contorno), **SOM BAIXO** (âmbar), **SEM SOM** (vermelho,
   pisca). "SOM OK" só depois de chegar som de verdade; antes disso, "OUVINDO…" (cinza).
 - Microfone que cai fora da gravação (receptor tirado e posto de volta) é pedido de novo sozinho.
+- **v9.7 (03/11, pedido do Cláudio): aviso menor.** "O alerta de som está muito grande e atrapalhando
+  quem tem celular menor." A medição não mudou (limites, tempos e `Sound` iguais), só a apresentação.
+  - **SOM OK e OUVINDO…** viram um selo pequeno (letra de 14 px, medidor de 3 px). Ele fica colado na
+    imagem da câmera: ao lado dela, se a imagem está no alto, ou embaixo dela, se está no canto.
+  - **SOM BAIXO e SEM SOM** continuam chamando a atenção (cor, SEM SOM piscando, causa escrita). O
+    tamanho acompanha a largura e a altura da tela: `clamp(20px, min(7.2vw, 4.4vh), 34px)`, contra
+    34 a 56 px na v9.6.
+  - **Lugar, em pé (`SndSpot`).** O aviso nunca cobre o texto perto da linha de leitura (a linha, a
+    de antes e a de depois, na coluna do texto), os controles à vista nem o selo REC. Com a linha
+    embaixo (câmera da frente), fica logo acima do texto já lido. Com a linha no alto (traseira),
+    fica no pé da tela, ou logo acima dos controles. Pode cobrir a imagem da câmera.
+  - Sem espaço na largura (celular pequeno com os controles à vista), o aviso vai para a coluna da
+    imagem, estreito. Sem espaço nem assim, fica só o título.
+  - O lugar é refeito quando o estado do som muda, quando os controles aparecem ou somem, quando a
+    gravação começa ou para e quando a tela gira.
+  - Em pé com a imagem no canto, a linha de leitura agora para antes da imagem, e a coluna da
+    imagem fica livre para o aviso.
+  - Deitado, o lugar continua o do painel (frente) e o do canto (traseira). O selo REC "SEM SOM"
+    esconde o próprio medidor para não ficar mais largo que a imagem.
+  - Teste: `tests/test-som-tela.js`. Em pé: 320×568, 360×640, 360×740 e 384×832. Deitado: 640×360 e
+    832×384. Frente e traseira, parado e gravando, nos quatro estados, com caixas sem sobreposição.
 
 ## Gravar com o celular deitado (v9.6, 03/11/2026)
 
@@ -195,6 +229,6 @@ Testes de ponta a ponta em `../tests/` (Chrome emulando o S25 FE): `test.js` (39
 teclas, deslize reto e torto, rotacao, regua, ajustes, assistente), `test-fluxos.js` (compartilhar,
 importar, desfazer, backup) e `test-voz.js` (comando de voz nao dispara lendo o roteiro) e `test-docs.js` (Google Docs com a API
 simulada: login, lista, busca, importacao, aviso de mudanca, token vencido), `test-contas.js`
-(duas contas), `test-picker.js` (conta de fora no endereço público, com o Picker simulado) e `test-som.js` (medidor de som com microfone simulado nos níveis medidos). Para rodar:
+(duas contas), `test-picker.js` (conta de fora no endereço público, com o Picker simulado), `test-som.js` (medidor de som com microfone simulado nos níveis medidos) e `test-som-tela.js` (lugar e tamanho do aviso de som em telas pequenas). Para rodar:
 sirva o app em http://127.0.0.1:8765/ (`python -m http.server 8765 --bind 127.0.0.1`), depois
 `cd ../tests && npm install puppeteer-core && node test.js`.
