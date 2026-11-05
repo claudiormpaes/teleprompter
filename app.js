@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v9.7';
+  var APP_VERSION = 'v9.8';
   var K_SCRIPTS = 'tp.scripts';
   var K_SETTINGS = 'tp.settings';
   var K_KEYS = 'tp.keys2';          // v6: deslizes passaram a ser medidos com o celular em pe
@@ -2117,15 +2117,27 @@
     },
     updateUI: function () {
       var p = Prompter.playing;
-      $('#pc-play-use').setAttribute('href', p ? '#i-pause' : '#i-play');
-      $('#pc-play').setAttribute('aria-label', p ? 'Pausar' : 'Iniciar');
-      var atEnd = !p && Prompter.ended;
-      var pill = $('#pause-pill');
-      pill.hidden = p || Prompter.pendingPlay;
-      pill.lastChild.textContent = atEnd ? 'Fim' : Rec.napped ? 'Câmera desligada'
-        : Rec.enabled() && !Rec.active() ? cue('Pise para gravar', 'Toque na tela para gravar') : 'Pausado';
+      $('#pause-pill').hidden = p || Prompter.pendingPlay;
+      Prompter.paintPlay();
       if (p) Prompter.scheduleHide(); else if (!Prompter.quiet) Prompter.showUI();
       Rec.poke();          // play, pausa, fim, contagem: a camera ociosa conta a partir daqui
+    },
+    /* botao de play e pilula: o que o proximo "iniciar" faz. v9.8: parado no fim do roteiro e ainda
+       gravando, iniciar para a gravacao (Rec.finish): o botao vira parar e a pilula diz como parar.
+       Chamado tambem quando a gravacao comeca ou para (Rec.paint) e quando o texto sai do fim (unend). */
+    paintPlay: function () {
+      var p = Prompter.playing, stopRec = Rec.atEnd();
+      $('#pc-play-use').setAttribute('href', p ? '#i-pause' : stopRec ? '#i-stop' : '#i-play');
+      $('#pc-play').setAttribute('aria-label', p ? 'Pausar' : stopRec ? 'Parar a gravação' : 'Iniciar');
+      $('#pause-pill').lastChild.textContent = stopRec ? cue('Pise para parar a gravação', 'Toque para parar a gravação')
+        : !p && Prompter.ended ? 'Fim' : Rec.napped ? 'Câmera desligada'
+        : Rec.enabled() && !Rec.active() ? cue('Pise para gravar', 'Toque na tela para gravar') : 'Pausado';
+    },
+    // o texto saiu do fim (voltar, avancar, arrastar): o proximo iniciar volta a rolar dali
+    unend: function () {
+      if (!Prompter.ended) return;
+      Prompter.ended = false;
+      Prompter.paintPlay();
     },
 
     // controles somem durante a leitura; o vidro reflete so o texto
@@ -2238,9 +2250,20 @@
           Prompter.playing = false;
           Prompter.ended = true;
           Prompter.cur = 0;
-          Prompter.updateUI();
-          Prompter.flash('i-check', 'Fim do roteiro');
-          if (Rec.active()) Rec.stopSoon(2500);
+          /* v9.8 (05/11, pedido do Claudio: "o aplicativo tem que continuar gravando no final"): gravando,
+             o fim do roteiro NAO fecha mais o arquivo (ate a v9.7 fechava sozinho 2,5 s depois e cortava
+             o final). O texto para; a gravacao segue ate a pessoa parar. Iniciar (pedal da direita, toque,
+             play) para e salva (Rec.finish); voltar volta o texto e a gravacao continua no mesmo arquivo.
+             Esquecida assim, para sozinha depois de Rec.END_IDLE_MS sem ninguem mexer (Rec.armEnd). */
+          if (Rec.active()) {
+            Prompter.quiet = true;       // como no fim do bloco: controles escondidos continuam escondidos e a pilula diz como parar
+            Prompter.updateUI();
+            Prompter.quiet = false;
+            Prompter.flash('i-rec', 'Fim do roteiro · gravando');
+          } else {
+            Prompter.updateUI();
+            Prompter.flash('i-check', 'Fim do roteiro');
+          }
         }
         if (Prompter.offset < 0) Prompter.offset = 0;
         // gravar por blocos: para no fim do paragrafo e deixa o proximo na linha
@@ -2303,6 +2326,8 @@
     },
     toggle: function () {
       if (Prompter.playing) { Prompter.pause(); return; }
+      // v9.8: parado no fim do roteiro e ainda gravando, iniciar para e salva (nao recomeca do topo gravando)
+      if (Rec.atEnd()) { Rec.finish(); return; }
       if (Rec.enabled() && Rec.begin()) return;     // primeira pisada: liga a gravacao, conta e rola
       Prompter.play();
     },
@@ -2318,7 +2343,7 @@
     },
     jumpTo: function (target, dur) {
       if (!Prompter.isOpen()) return;
-      Prompter.ended = false;
+      Prompter.unend();
       Prompter.anim = { from: Prompter.offset, to: clamp(target, 0, Prompter.maxOffset), t0: now(), dur: dur || 380 };
       Prompter.ensureLoop();
     },
@@ -2364,7 +2389,7 @@
     // rolagem manual (dedo, roda, barra de posicao)
     nudge: function (px) {
       Prompter.anim = null;
-      Prompter.ended = false;
+      Prompter.unend();
       Prompter.offset = clamp(Prompter.offset + px, 0, Prompter.maxOffset);
       Prompter.lastPara = Prompter.paraIndexAt(Prompter.offset);
       Prompter.lastSec = Prompter.sectionAt(Prompter.offset);
@@ -2487,13 +2512,14 @@
     t0: 0,
     sec: -1,            // bloco em gravacao
     clock: 0,
-    stopTimer: 0,
     saving: 0,          // videos sendo salvos (Download + fila do Drive)
     savedAt: 0,
     IDLE_MS: 120000,    // camera ociosa: parada esse tempo sem ninguem mexer, desliga (ver nap)
     idleAt: 0,          // ultima interacao (ou ultima vez que havia algo acontecendo)
     idleTimer: 0,
     napped: false,      // desligada por ociosidade: a faixa do som avisa ate religar
+    END_IDLE_MS: 600000, // v9.8: parada no fim do roteiro, gravando, esse tempo sem ninguem mexer: para e salva (ver armEnd)
+    endTimer: 0,
 
     enabled: function () { return !!settings.record; },
     active: function () { return !!Rec.mr; },
@@ -2597,6 +2623,7 @@
     poke: function () {
       Rec.idleAt = now();
       Rec.armIdle(Rec.IDLE_MS);
+      Rec.armEnd();                     // parada no fim gravando (v9.8): a contagem para salvar sozinha tambem recomeca
     },
     armIdle: function (ms) {
       clearTimeout(Rec.idleTimer);
@@ -2628,9 +2655,34 @@
       Toast.show(was ? 'A câmera desligou no meio. O que foi gravado está salvo.' : 'A câmera desligou.');
     },
 
+    /* ---- fim do roteiro gravando (v9.8) ----
+       O texto chegou ao fim rolando e a gravacao continua (antes o arquivo fechava sozinho em 2,5 s).
+       Iniciar (pedal da direita, toque na tela, play) para e salva: Prompter.toggle chama finish.
+       Voltar tira o texto do fim (Prompter.unend) e a gravacao segue no mesmo arquivo. Para quem
+       esquece gravando: END_IDLE_MS sem nenhum toque, tecla, pedal ou rolagem e a gravacao para e
+       salva sozinha. Qualquer interacao passa por Rec.poke, que rearma esta contagem. A camera
+       ociosa (IDLE_MS) nao muda: gravando, ela nunca desliga. */
+    atEnd: function () {
+      return Rec.active() && Prompter.ended && !Prompter.playing && !Prompter.pendingPlay && Prompter.isOpen();
+    },
+    armEnd: function () {
+      clearTimeout(Rec.endTimer);
+      Rec.endTimer = Rec.atEnd() ? setTimeout(Rec.endIdle, Math.max(50, Rec.END_IDLE_MS)) : 0;
+    },
+    endIdle: function () {
+      Rec.endTimer = 0;
+      if (Rec.atEnd()) Rec.finish(true);
+    },
+    // para e salva a gravacao parada no fim do roteiro. auto: ninguem mexeu por END_IDLE_MS
+    finish: function (auto) {
+      if (!Rec.active()) return;
+      Rec.stop();
+      if (auto) Toast.show('A gravação parou sozinha: ficou parada no fim do roteiro sem ninguém mexer. O vídeo foi salvo.', null, null, 30000);
+      else Prompter.flash('i-stop', 'Gravação parada');
+    },
+
     // pedal "iniciar" (ou toque na tela, ou play). Devolve true quando a pisada ja foi usada aqui (o texto rola depois da contagem).
     begin: function () {
-      clearTimeout(Rec.stopTimer);
       Sound.wake();                     // a pisada e um gesto: destrava o medidor se o navegador o deixou parado
       if (!Rec.stream) {
         // camera desligada (ociosa ou que falhou): esta pisada so a liga, a seguinte grava
@@ -2695,7 +2747,8 @@
     },
 
     stop: function () {
-      clearTimeout(Rec.stopTimer);
+      clearTimeout(Rec.endTimer);
+      Rec.endTimer = 0;
       clearInterval(Rec.clock);
       var mr = Rec.mr;
       Rec.mr = null;
@@ -2704,11 +2757,6 @@
       if (mr) Rec.poke();               // gravacao acabou: a camera ociosa conta a partir daqui
       if (mr && settings.recScreen === 'landscape') Rec.lockScreen();   // deitada: volta a seguir o lado do celular
       Rec.paint();
-    },
-    // fim do roteiro: um respiro gravado antes de fechar o arquivo
-    stopSoon: function (ms) {
-      clearTimeout(Rec.stopTimer);
-      Rec.stopTimer = setTimeout(function () { if (!Prompter.playing) Rec.stop(); }, ms);
     },
 
     // copia na pasta Download do celular (o caminho de sempre e a reserva da pasta PROMPTER)
@@ -2782,6 +2830,7 @@
       $('#pc-stop').hidden = !Rec.active();
       $('#pc-last').hidden = !on || !Rec.last || Rec.active();
       $('#rec-badge').hidden = !Rec.active();
+      Prompter.paintPlay();             // gravacao comecou ou parou: o que o play faz no fim do roteiro muda (v9.8)
       Rec.paintClock();
       Sound.paint();
       Lay.measure();
@@ -3696,7 +3745,7 @@
         var pct = clamp((x - r.left) / Math.max(1, r.width), 0, 1);
         Prompter.anim = null;
         Prompter.offset = pct * Prompter.maxOffset;
-        Prompter.ended = false;
+        Prompter.unend();
         Prompter.lastPara = Prompter.paraIndexAt(Prompter.offset);
         Prompter.lastSec = Prompter.sectionAt(Prompter.offset);
         Prompter.paint();

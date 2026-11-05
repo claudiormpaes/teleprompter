@@ -135,6 +135,30 @@ arquivo, 10 vezes por segundo, desde que a câmera liga:
   - Teste: `tests/test-som-tela.js`. Em pé: 320×568, 360×640, 360×740 e 384×832. Deitado: 640×360 e
     832×384. Frente e traseira, parado e gravando, nos quatro estados, com caixas sem sobreposição.
 
+## Fim do roteiro gravando (v9.8, 05/11/2026)
+
+Pedido do Cláudio: "o aplicativo tem que continuar gravando no final. quando o roteiro encerra, ele
+para a gravacao". Até a v9.7, quando o texto chegava ao fim rolando, o arquivo fechava sozinho 2,5 s
+depois e cortava o final da fala.
+
+- **No fim, a gravação continua.** O texto para no fim e o arquivo segue aberto até a pessoa parar.
+  Aviso "Fim do roteiro · gravando"; a pílula diz "Pise para parar a gravação" (com pedal) ou "Toque
+  para parar a gravação" (sem pedal), e o botão de play vira parar.
+- **Iniciar para e salva.** No fim, gravando, o pedal da direita, o toque na tela e o play param e
+  salvam (`Rec.finish`), em vez de recomeçar o texto do topo com a câmera gravando. Depois de parada,
+  o próximo iniciar faz o de sempre: recomeça do topo num arquivo novo.
+- **Voltar continua.** O pedal da esquerda (ou o botão de voltar) tira o texto do fim e a gravação
+  segue no mesmo arquivo: dá para refazer o último trecho.
+- As outras formas de parar não mudaram: selo REC, botão de parar do alto, botão vermelho do painel e
+  sair do prompter (salva o que estiver gravando).
+- **Esquecida gravando:** parada no fim, gravando, sem nenhum toque, tecla, pedal ou rolagem por
+  10 minutos (`Rec.END_IDLE_MS`), a gravação para e salva sozinha, com um aviso. Qualquer interação
+  passa por `Rec.poke`, que zera essa contagem. A câmera ociosa (`Rec.IDLE_MS`) não mudou: gravando,
+  ela nunca desliga.
+- Blocos (`# título`, um arquivo por bloco) e "Pausar no fim de cada parágrafo" continuam iguais: só
+  o fim do último bloco (o fim do roteiro) mudou.
+- Teste: `tests/test-fim-gravando.js` (o prazo de 10 min vira 3 s no teste).
+
 ## Gravar com o celular deitado (v9.6, 03/11/2026)
 
 Pedido do Cláudio: usar o app também na posição de gravação horizontal. Na tela "Como vai gravar?"
@@ -229,6 +253,6 @@ Testes de ponta a ponta em `../tests/` (Chrome emulando o S25 FE): `test.js` (39
 teclas, deslize reto e torto, rotacao, regua, ajustes, assistente), `test-fluxos.js` (compartilhar,
 importar, desfazer, backup) e `test-voz.js` (comando de voz nao dispara lendo o roteiro) e `test-docs.js` (Google Docs com a API
 simulada: login, lista, busca, importacao, aviso de mudanca, token vencido), `test-contas.js`
-(duas contas), `test-picker.js` (conta de fora no endereço público, com o Picker simulado), `test-som.js` (medidor de som com microfone simulado nos níveis medidos) e `test-som-tela.js` (lugar e tamanho do aviso de som em telas pequenas). Para rodar:
+(duas contas), `test-picker.js` (conta de fora no endereço público, com o Picker simulado), `test-som.js` (medidor de som com microfone simulado nos níveis medidos), `test-som-tela.js` (lugar e tamanho do aviso de som em telas pequenas) e `test-fim-gravando.js` (fim do roteiro gravando). Para rodar:
 sirva o app em http://127.0.0.1:8765/ (`python -m http.server 8765 --bind 127.0.0.1`), depois
 `cd ../tests && npm install puppeteer-core && node test.js`.
