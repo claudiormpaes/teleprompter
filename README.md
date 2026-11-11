@@ -135,6 +135,62 @@ arquivo, 10 vezes por segundo, desde que a câmera liga:
   - Teste: `tests/test-som-tela.js`. Em pé: 320×568, 360×640, 360×740 e 384×832. Deitado: 640×360 e
     832×384. Frente e traseira, parado e gravando, nos quatro estados, com caixas sem sobreposição.
 
+## Imagem em tela cheia e filtros de imagem (v10.0, 11/11/2026)
+
+Pedido do Cláudio: "Vamos melhorar nosso app e deixar mais fácil o controle de qualidade da imagem.
+Vamos deixar o vídeo em tela cheia. O roteiro, controles etc ficam com um fundo com transparência.
+2. Vamos permitir colocar filtros leves de melhoria de rosto, imagem, etc."
+
+**Tela cheia** (`camPos: 'full'`, classe `cam-full` no prompter e `tp-full` em `#app`):
+
+- É o padrão novo nos quatro modos de gravação (frente e traseira, em pé e deitado). Quem já tinha
+  configuração salva passa uma vez para a tela cheia, inclusive a memória de cada modo
+  (`settings.camPosFullDone`). As posições antigas continuam em Ajustes > Onde fica a imagem (deitado:
+  Tela cheia ou No canto).
+- A imagem ocupa a tela toda, atrás de tudo (`object-fit: cover`), com o espelho de sempre (frontal
+  espelhada na tela, arquivo sem espelho), de cabeça para baixo e deitado.
+- Por cima, cada parte com fundo escuro semitransparente: barra do topo, painel, faixa atrás do texto
+  (`#textband`, só a linha de leitura e uma linha antes e depois; o resto da imagem fica à vista), selo
+  REC, faixa do som e avisos. A letra ganha sombra. Sem `backdrop-filter`/desfoque (esquenta): só rgba.
+- Ajustes > **Transparência do fundo** (`settings.uiAlpha`, 20 a 90 %, padrão 55 %), lembrada.
+- O texto já lido apaga por parágrafo (`Prompter.paintDone`, classe `done`): o degradê escuro do alto
+  cobriria a imagem.
+- Em pé o painel ficou mais baixo, para o texto da linha de leitura ficar livre até em tela de 568 px.
+  O selo REC é posto pelo app (`SndSpot.badge`) no primeiro lugar livre, fora da linha e do texto em volta
+  dela; o aviso (toast) da frente fica logo acima do texto da linha. Deitado, o selo fica no alto do
+  painel (frente) ou da coluna do som (traseira). Em pé, o botão vermelho de parar do painel dá lugar à
+  varinha e ao olho (parar: selo REC ou o botão do alto).
+- **Ver imagem** (olho; em pé no painel, deitado na barra do topo): roteiro, faixas e avisos saem para
+  conferir a imagem limpa; o texto pausa. Qualquer toque, pedal ou Esc traz tudo de volta e não inicia
+  nem grava (`Peek`).
+- Câmera desligada (imagem escondida, câmera ociosa, "Só ler"): fundo preto e avisos como antes.
+
+**Filtros** (`Fx`, `FxUI`, `FxSheet`; `settings.fx`, por modo em `MODE_KEYS`):
+
+- Varinha (em pé no painel, deitado na barra do topo): folha pequena por cima da imagem ao vivo, com o
+  roteiro e os controles fora da frente. Os mesmos controles em Ajustes > Imagem.
+- Prontos: Desligado (padrão), Natural, Suave, Quente. Réguas: Pele suave, Luz, Contraste, Cor e
+  Temperatura, com faixas limitadas para ficar leve. "Antes": segurando, mostra a imagem sem filtro.
+- Valem no arquivo. Um passe de shader WebGL (luz, contraste, saturação, temperatura e pele suave por
+  desfoque que preserva bordas, só onde a cor é de pele, máscara em YCbCr) num canvas fora da tela; um
+  canvas 2D copia o resultado. O 2D é o que fica na tela e o que a gravação captura
+  (`captureStream(30)` + o som da câmera): o que se vê é o que vai para o arquivo. Só desenha quadro novo
+  (`requestVideoFrameCallback`).
+- **Desligado, ou tudo em zero, é o caminho de antes, exato:** a câmera direto no MediaRecorder, sem
+  canvas, sem WebGL, sem laço extra.
+- Com filtro, no máximo Full HD: a câmera é pedida em 1080 e o canvas nunca passa de 1920×1080. Com 4K
+  escolhido, a folha avisa "Com filtro, o vídeo sai em Full HD."
+- Gravando, o filtro não muda (a varinha some e Ajustes > Imagem trava com aviso).
+- Segurança: WebGL que falha ou desenho que não acompanha a câmera (abaixo de ~20 quadros/s, perdendo
+  quadros, por 3 s) desliga o filtro com aviso. Gravando, o canvas passa a copiar a imagem crua: a
+  gravação segue no mesmo arquivo, sem corte. A câmera ociosa e sair do prompter param o laço.
+- Giro no tkhd, nome dos arquivos, blocos, fim do roteiro gravando, medidor de som, pasta PROMPTER e
+  envio ao Drive funcionam igual com filtro.
+- Ficou de fora: a régua Luz usar a compensação de exposição da própria câmera
+  (`exposureCompensation`); a câmera falsa dos testes não tem esse ajuste para testar.
+- Testes: `tests/test-tela-cheia.js` e `tests/test-filtros.js`; `tests/test-som-tela.js` roda agora nas
+  posições antigas e na tela cheia. Capturas em `../shots/v10/`.
+
 ## Fim do roteiro gravando (v9.8, 05/11/2026)
 
 Pedido do Cláudio: "o aplicativo tem que continuar gravando no final. quando o roteiro encerra, ele

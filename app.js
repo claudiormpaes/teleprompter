@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v9.8';
+  var APP_VERSION = 'v10.0';
   var K_SCRIPTS = 'tp.scripts';
   var K_SETTINGS = 'tp.settings';
   var K_KEYS = 'tp.keys2';          // v6: deslizes passaram a ser medidos com o celular em pe
@@ -59,7 +59,9 @@
     camPreview: true,   // imagem da camera no canto, para enquadrar
     camRotate: 0,       // giro da imagem (graus, horario), no canto e no arquivo: o celular pode estar de cabeca para baixo
     driveUpload: true,  // cada video sobe sozinho para o Google Drive (alem da copia na pasta Download)
-    camPos: 'top',      // imagem da camera: top (no alto, centralizada) | line (logo acima da linha de leitura) | corner (canto direito)
+    camPos: 'full',     // imagem da camera: full (tela cheia, atras de tudo; v10.0) | top (no alto, centralizada) | line (logo acima da linha de leitura) | corner (canto direito)
+    uiAlpha: 55,        // v10.0, tela cheia: opacidade (%) do fundo escuro do roteiro, da barra do topo e do painel (20 a 90)
+    fx: null,           // v10.0: filtros de imagem (ver Fx); null = desligado
     textAlign: 'left',  // left | center
     recScreen: 'landscape-primary',  // tela travada enquanto grava: landscape-primary | landscape-secondary | landscape (deitada, o lado em que estiver) | portrait-primary | portrait-secondary | livre
     phone: 'portrait'   // v9.6: na escolha do modo, o celular fica em pe (portrait) ou deitado (landscape, video horizontal)
@@ -118,25 +120,41 @@
      Galeria (Folder). Instalacao nova comeca sem Drive ate a resposta. Nos da Robertha nada muda. */
   var LOCALHOST = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
   if (!LOCALHOST && !settings.saveAsked && !('driveUpload' in (Store.read(K_SETTINGS, null) || {}))) settings.driveUpload = false;
+  /* v10.0 (11/11/2026, pedido do Claudio: "Vamos deixar o video em tela cheia"): a imagem da camera passa a
+     ocupar a tela toda, atras do roteiro e dos controles, nos quatro modos de gravacao. Quem ja tinha
+     configuracao salva passa UMA vez para a tela cheia (camPosFullDone), inclusive a memoria de cada modo;
+     as posicoes antigas continuam em Ajustes > Onde fica a imagem. */
+  if (!settings.camPosFullDone) {
+    settings.camPos = 'full';
+    if (settings.modes) Object.keys(settings.modes).forEach(function (m) {
+      var snap = settings.modes[m];
+      if (snap && typeof snap === 'object' && 'camPos' in snap) settings.modes[m] = Object.assign({}, snap, { camPos: 'full' });
+    });
+    settings.camPosFullDone = true;
+    if (Store.read(K_SETTINGS, null)) Store.write(K_SETTINGS, settings);
+  }
+  settings.uiAlpha = clamp(Math.round(Number(settings.uiAlpha) || 55), 20, 90);
   var keymap = Object.assign(defaultKeys(), Store.read(K_KEYS, {}));
   var scripts = Store.read(K_SCRIPTS, null);
 
   /* Modos: ao abrir um roteiro a pessoa escolhe como vai gravar. Cada modo lembra os proprios
      ajustes de camera, tela e leitura; o resto (velocidade, fonte, cor) vale para todos. */
-  var MODE_KEYS = ['record', 'camFacing', 'recScreen', 'guidePos', 'camPos', 'textAlign', 'camRotate', 'camPreview', 'mirrorH', 'mirrorV'];
+  // v10.0: os filtros de imagem (fx) tambem ficam por modo: a frente e a traseira pedem ajustes diferentes
+  var MODE_KEYS = ['record', 'camFacing', 'recScreen', 'guidePos', 'camPos', 'textAlign', 'camRotate', 'camPreview', 'mirrorH', 'mirrorV', 'fx'];
   var MODE_PRESETS = {
+    // v10.0: nos quatro modos de gravacao a imagem fica em tela cheia (camPos 'full'), atras do texto e dos controles
     // camera da frente: celular de cabeca para baixo, lente embaixo colada no texto, controles no alto
-    front: { record: true, camFacing: 'user', recScreen: 'portrait-secondary', guidePos: 75, camPos: 'top', textAlign: 'center', camRotate: 0, camPreview: true, mirrorH: false, mirrorV: false },
+    front: { record: true, camFacing: 'user', recScreen: 'portrait-secondary', guidePos: 75, camPos: 'full', textAlign: 'center', camRotate: 0, camPreview: true, mirrorH: false, mirrorV: false },
     // camera traseira: celular em pe, tela normal, imagem no canto
-    rear: { record: true, camFacing: 'environment', recScreen: 'portrait-primary', guidePos: 33, camPos: 'corner', textAlign: 'left', camRotate: 0, camPreview: true, mirrorH: false, mirrorV: false },
+    rear: { record: true, camFacing: 'environment', recScreen: 'portrait-primary', guidePos: 33, camPos: 'full', textAlign: 'left', camRotate: 0, camPreview: true, mirrorH: false, mirrorV: false },
     // so ler: o teleprompter de sempre
     plain: { record: false, recScreen: 'livre', guidePos: 33, textAlign: 'left' },
     /* v9.6, celular deitado (video horizontal). Memoria separada da versao em pe. A tela trava deitada
        no lado em que o celular estiver ('landscape'); gravando, trava naquele lado (Rec.lockScreen). */
     // camera da frente deitada: texto numa coluna encostada no lado da lente, linha no meio da altura (Lay)
-    'front-h': { record: true, camFacing: 'user', recScreen: 'landscape', guidePos: 45, camPos: 'corner', textAlign: 'left', camRotate: 0, camPreview: true, mirrorH: false, mirrorV: false },
+    'front-h': { record: true, camFacing: 'user', recScreen: 'landscape', guidePos: 45, camPos: 'full', textAlign: 'left', camRotate: 0, camPreview: true, mirrorH: false, mirrorV: false },
     // camera traseira deitada: texto na largura toda, imagem no canto, controles embaixo
-    'rear-h': { record: true, camFacing: 'environment', recScreen: 'landscape', guidePos: 33, camPos: 'corner', textAlign: 'left', camRotate: 0, camPreview: true, mirrorH: false, mirrorV: false }
+    'rear-h': { record: true, camFacing: 'environment', recScreen: 'landscape', guidePos: 33, camPos: 'full', textAlign: 'left', camRotate: 0, camPreview: true, mirrorH: false, mirrorV: false }
   };
   function landMode(m) { return /-h$/.test(m === undefined ? settings.mode || '' : m || ''); }
 
@@ -1919,10 +1937,15 @@
     quiet: false,      // acao do pedal/voz em andamento: nao mostra os controles de toque
     metaAt: 0,
     flashTimer: 0,
+    heights: [],
+    fullDim: false,    // v10.0, tela cheia: o texto ja lido apaga por paragrafo (paintDone), sem o degrade escuro
+    doneN: 0,
 
     /* Fonte unica de verdade: o prompter esta aberto se a view esta na tela. */
     isOpen: function () { return VIEWS.prompter.classList.contains('is-active'); },
-    sheetOpen: function () { return !$('#panel-settings').hidden; },
+    // folha de Ajustes ou de filtros (v10.0) aberta: o toque na tela nao inicia nada
+    sheetOpen: function () { return !$('#panel-settings').hidden || FxSheet.isOpen(); },
+    closeSheets: function () { Settings.close(); FxSheet.close(); },
 
     open: function (id) {
       var s = findScript(id) || mostRecentScript();
@@ -1931,6 +1954,7 @@
       if (s.wpm) settings.wpm = clamp(s.wpm, 60, 260);   // cada roteiro lembra a propria velocidade
       blurActive();
       Prompter.paras = Script.render($('#content'), s.text);
+      Prompter.doneN = 0;
       Prompter.words = Script.countWords(s.text);
       $('#p-title').textContent = s.title || '';
       Prompter.offset = 0;
@@ -1994,6 +2018,8 @@
       $('#countdown').hidden = true;
       Prompter.cdShown = -1;
       Settings.close();
+      FxSheet.close();
+      Peek.hide(true);
       Voice.stop();
       Follow.stop();
       if (Player.isOpen()) Player.close();
@@ -2051,10 +2077,13 @@
       st.style.setProperty('--linebox', lineBox.toFixed(1) + 'px');
       VIEWS.prompter.style.setProperty('--guidey', G.toFixed(1) + 'px');     // a imagem da camera se apoia na linha
       VIEWS.prompter.style.setProperty('--linebox', lineBox.toFixed(1) + 'px');
+      $('#app').style.setProperty('--guidey', G.toFixed(1) + 'px');           // v10.0: o aviso (toast) fica acima do texto da linha
+      $('#app').style.setProperty('--linebox', lineBox.toFixed(1) + 'px');
       st.style.setProperty('--fadeh', Math.max(0, G - lineBox * 0.55).toFixed(1) + 'px');
       st.style.setProperty('--padtop', (G - lineBox / 2).toFixed(1) + 'px');
       var textH = content.offsetHeight, paraH = 0;
       Prompter.tops = Prompter.paras.map(function (p) { paraH += p.offsetHeight; return p.offsetTop; });
+      Prompter.heights = Prompter.paras.map(function (p) { return p.offsetHeight; });
       Prompter.marks = Array.prototype.map.call(content.querySelectorAll('.mark'), function (m) {
         return { top: m.offsetTop, text: m.textContent };
       });
@@ -2083,6 +2112,21 @@
       $('#progress-bar').style.transform = 'scaleX(' + pct.toFixed(4) + ')';
       // a barra de posicao muda largura (refaz o layout): com os controles escondidos, nao mexe nela
       if (!Prompter.uiHidden()) Prompter.paintScrub(pct);
+      if (Prompter.fullDim || Prompter.doneN) Prompter.paintDone(false);
+    },
+    /* v10.0, tela cheia: o degrade escuro do texto ja lido cobriria a imagem da camera. No lugar dele, cada
+       paragrafo que ja passou inteiro pela linha de leitura fica apagado (classe 'done'). So mexe nas classes
+       quando o numero de paragrafos lidos muda. */
+    paintDone: function (force) {
+      var paras = Prompter.paras, n = 0;
+      if (Prompter.fullDim) {
+        var lim = Prompter.offset + 1;
+        for (var i = 0; i < paras.length; i++) { if (Prompter.tops[i] + (Prompter.heights[i] || 0) <= lim) n = i + 1; else break; }
+      }
+      if (n === Prompter.doneN && !force) return;
+      var a = force ? 0 : Math.min(n, Prompter.doneN), b = force ? paras.length : Math.max(n, Prompter.doneN);
+      for (var k = a; k < b; k++) paras[k].classList.toggle('done', k < n);
+      Prompter.doneN = n;
     },
     paintScrub: function (pct) {
       if (pct == null) pct = clamp(Prompter.offset / Prompter.maxOffset, 0, 1);
@@ -2520,10 +2564,13 @@
     napped: false,      // desligada por ociosidade: a faixa do som avisa ate religar
     END_IDLE_MS: 600000, // v9.8: parada no fim do roteiro, gravando, esse tempo sem ninguem mexer: para e salva (ver armEnd)
     endTimer: 0,
+    fxRec: false,       // v10.0: a gravacao em curso sai do canvas do filtro (Fx), nao direto da camera
+    streamBig: false,   // a camera ligada foi pedida em 4K
 
     enabled: function () { return !!settings.record; },
     active: function () { return !!Rec.mr; },
-    big: function () { return settings.recQuality !== '1080'; },
+    // 4K so sem filtro (v10.0): com filtro ligado o video sai no maximo em Full HD e a camera e pedida em 1080
+    big: function () { return settings.recQuality !== '1080' && !Fx.wanted(); },
     // voz crua: sem cancelamento de eco, supressao de ruido nem ganho automatico
     audio: function () { return { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 2 } }; },
 
@@ -2568,6 +2615,7 @@
       Rec.starting = true;
       if (Rec.napped) { Rec.napped = false; Prompter.updateUI(); Sound.paint(); }   // religando: tira o aviso
       var gen = ++Rec.gen, big = Rec.big();
+      Rec.streamBig = big;
       navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: settings.camFacing === 'user' ? 'user' : 'environment' }, width: { ideal: big ? 3840 : 1920 }, height: { ideal: big ? 2160 : 1080 }, frameRate: { ideal: 30 } },
         audio: Rec.audio()
@@ -2583,6 +2631,7 @@
         safe(function () { return v.play(); });
         Rec.poke();                     // camera pronta: a contagem da ociosa comeca do zero
         Rec.paint();
+        Fx.sync();                      // filtro ligado: o laco do canvas comeca com a camera (v10.0)
       }).catch(function (e) {
         if (gen !== Rec.gen) return;
         Rec.starting = false;
@@ -2599,6 +2648,8 @@
       Rec.gen++;                        // pedido de camera ou de microfone em andamento chega velho e e descartado
       Rec.starting = false;
       Rec.stop();
+      Fx.stop();                        // v10.0: o laco do canvas do filtro para junto (cochilo da camera, sair do prompter)
+      Peek.hide(true);
       Sound.detach();                   // antes de parar as faixas: o medidor nao ve o microfone sumir (sem alarme, sem pedir de novo)
       if (Rec.stream) Rec.stream.getTracks().forEach(function (t) { t.removeEventListener('ended', Rec.lost); safe(function () { t.stop(); }); });
       Rec.stream = null;
@@ -2709,25 +2760,42 @@
     start: function () {
       if (Rec.active() || !Rec.stream) return false;
       Voice.stop();                     // o reconhecimento de voz disputa o microfone com a gravacao
-      var type = Rec.mime(), mr;
-      try {
-        mr = new MediaRecorder(Rec.stream, { mimeType: type, videoBitsPerSecond: Rec.big() ? 30e6 : 12e6, audioBitsPerSecond: 192000 });
-      } catch (e) {
-        Toast.show('Este aparelho não conseguiu iniciar a gravação.');
-        return false;
+      var type = Rec.mime(), mr = null, opts = { mimeType: type, videoBitsPerSecond: Rec.big() ? 30e6 : 12e6, audioBitsPerSecond: 192000 };
+      /* v10.0: filtro ligado e funcionando: grava o canvas do filtro (o mesmo que esta na tela) com o som da
+         camera. Sem filtro, o caminho de sempre: a camera direto no MediaRecorder. */
+      var fxTrack = Fx.running && !Fx.broken ? Fx.track() : null;
+      if (fxTrack) {
+        try { mr = new MediaRecorder(new MediaStream([fxTrack].concat(Rec.stream.getAudioTracks())), opts); }
+        catch (e) { safe(function () { fxTrack.stop(); }); fxTrack = null; mr = null; }
+      }
+      if (!mr) {
+        try {
+          mr = new MediaRecorder(Rec.stream, opts);
+        } catch (e) {
+          Toast.show('Este aparelho não conseguiu iniciar a gravação.');
+          return false;
+        }
       }
       // posicao final de um salto em andamento: o nome sai do bloco onde o texto vai parar
       var chunks = [], started = new Date(), sec = Prompter.sectionAt(Prompter.baseOffset());
       var label = Prompter.sectionTitle(sec) || $('#p-title').textContent;
       var rot = ((settings.camRotate | 0) + Rec.fixRot()) % 360;
       mr.ondataavailable = function (ev) { if (ev.data && ev.data.size) chunks.push(ev.data); };
-      mr.onstop = function () { Rec.save(chunks, mr.mimeType || type, started, label, rot); };
+      mr.onstop = function () {
+        if (fxTrack) safe(function () { fxTrack.stop(); });     // so a faixa do canvas; o som e a camera continuam
+        Rec.save(chunks, mr.mimeType || type, started, label, rot);
+      };
       mr.onerror = function () {
         Toast.show('A gravação deu erro. O que já foi gravado será salvo.');
         if (Rec.mr === mr) Rec.stop();
       };
-      try { mr.start(1000); } catch (e) { Toast.show('Este aparelho não conseguiu iniciar a gravação.'); return false; }
+      try { mr.start(1000); } catch (e) {
+        if (fxTrack) safe(function () { fxTrack.stop(); });
+        Toast.show('Este aparelho não conseguiu iniciar a gravação.');
+        return false;
+      }
       Rec.mr = mr;
+      Rec.fxRec = !!fxTrack;
       Rec.sec = sec;
       Rec.t0 = now();
       if (settings.recScreen === 'landscape') Rec.lockScreen();   // deitada: gravando, a tela fica travada no lado em que esta
@@ -2756,6 +2824,12 @@
       if (mr && mr.state !== 'inactive') safe(function () { mr.stop(); });
       if (mr) Rec.poke();               // gravacao acabou: a camera ociosa conta a partir daqui
       if (mr && settings.recScreen === 'landscape') Rec.lockScreen();   // deitada: volta a seguir o lado do celular
+      if (mr) {
+        Rec.fxRec = false;
+        // v10.0: o filtro desligado (ou que falhou) no meio da gravacao sai agora; a camera volta ao 4K se for o caso.
+        // Depois, nao aqui: no meio de release/begin a camera ainda esta mudando
+        setTimeout(Fx.sync, 0);
+      }
       Rec.paint();
     },
 
@@ -2807,13 +2881,24 @@
       var fix = Rec.fixRot(), land = landMode() && Lay.flat();
       var v = $('#cam-video'), rot = ((settings.camRotate | 0) + (settings.camFacing === 'user' ? 360 - fix : fix)) % 360, vp = VIEWS.prompter;
       var show = on && !!settings.camPreview;
+      // v10.0: tela cheia: a imagem ocupa a tela toda atras de tudo (em pe e deitado); nada abre espaco para ela
+      var full = show && settings.camPos === 'full';
       $('#cam').hidden = !show;
-      vp.classList.toggle('has-cam', show);
+      vp.classList.toggle('has-cam', show && !full);
+      vp.classList.toggle('cam-full', full);
+      $('#app').classList.toggle('tp-full', full);
+      // frente em pe (painel no alto): o aviso (toast) fica logo acima do texto da linha, nao em cima dele
+      $('#app').classList.toggle('tp-fctl', full && !land && vp.classList.contains('ctl-top'));
       // onde fica a imagem: no alto (centralizada), logo acima da linha de leitura, ou no canto (o texto abre espaco).
       // Deitado, o lugar e do layout deitado (Lay): coluna do canto
-      vp.classList.toggle('cam-top', show && settings.camPos === 'top' && !land);
-      vp.classList.toggle('cam-above', show && settings.camPos === 'line' && !land);
+      vp.classList.toggle('cam-top', show && !full && settings.camPos === 'top' && !land);
+      vp.classList.toggle('cam-above', show && !full && settings.camPos === 'line' && !land);
       vp.classList.toggle('recording', Rec.active());
+      // tela cheia: filtros (varinha) e "Ver imagem" (olho); a varinha some gravando (o filtro e decidido antes)
+      ['#pc-fx', '#pt-fx'].forEach(function (s) { var x = $(s); x.hidden = !full; x.classList.toggle('off', Rec.active()); });
+      ['#pc-peek', '#pt-peek'].forEach(function (s) { $(s).hidden = !full || !Rec.stream; });
+      var fd = full && !!settings.dimRead;
+      if (fd !== Prompter.fullDim) { Prompter.fullDim = fd; Prompter.paintDone(true); }
       // a caixa do canto segue a proporcao da imagem ja girada
       var w = v.videoWidth || (land ? 16 : 9), h = v.videoHeight || (land ? 9 : 16);
       if (rot % 180) { var t = w; w = h; h = t; }
@@ -2822,6 +2907,8 @@
       $('#cam').classList.toggle('sideways', rot % 180 !== 0);
       $('#cam').classList.toggle('selfie', settings.camFacing === 'user');   // frontal: o canto mostra como espelho; o arquivo nao
       $('#cam').classList.toggle('live', !!Rec.stream);
+      $('#cam').classList.toggle('fx-on', Fx.running);
+      FxUI.sync();                      // gravando, os filtros travam (Ajustes > Imagem e a folha)
       var b = $('#pc-rec');
       b.hidden = !on;
       b.setAttribute('aria-pressed', String(Rec.active()));
@@ -3073,9 +3160,56 @@
       var w = Math.min(a.r, o.r) - Math.max(a.l, o.l), h = Math.min(a.b, o.b) - Math.max(a.t, o.t);
       return w > 0.5 && h > 0.5 ? w * h : 0;
     },
+    /* v10.0, tela cheia em pe: o selo REC fica a vista a gravacao toda, encostado na direita, no primeiro lugar
+       livre: abaixo da barra do topo; abaixo do painel, se o painel fica no alto (camera da frente); senao abaixo
+       ou acima do texto da linha de leitura. Nunca por cima da linha, do texto em volta dela, dos botoes ou do
+       painel (mesmo escondido: o selo nao pula quando os controles somem). Fora disso o lugar e o do CSS. */
+    badge: function (on) {
+      var b = $('#rec-badge');
+      if (!on || b.hidden) {
+        if (b.classList.contains('placed')) { b.classList.toggle('placed', false); b.style.left = b.style.top = ''; }
+        return;
+      }
+      var V = VIEWS.prompter.getBoundingClientRect(), S = SndSpot.safe(), M = SndSpot.M;
+      if (!V.width || !V.height) return;
+      b.classList.toggle('placed', true);
+      var w = b.offsetWidth, h = b.offsetHeight;
+      var top = V.top + 8 + S.t, bottom = V.bottom - 8 - S.b, x = V.right - 12 - S.r - w;
+      var box = function (n) { return n && !n.hidden && n.getClientRects().length ? n.getBoundingClientRect() : null; };
+      var g = box($('#guide')), c = box($('#content')), lb = Prompter.lineBox || 0, obs = [], ys = [];
+      if (g) {
+        obs.push({ l: g.left, r: g.right, t: g.top, b: g.bottom });
+        obs.push({ l: c ? c.left : g.left, r: c ? c.right : g.right, t: g.top - lb, b: g.bottom + lb });
+      }
+      var bar = 0, dock = null;
+      Array.prototype.forEach.call(document.querySelectorAll('#p-top > *'), function (n) {
+        var r = box(n); if (r) { obs.push({ l: r.left, r: r.right, t: r.top, b: r.bottom }); bar = Math.max(bar, r.bottom); }
+      });
+      ['#speed', '#transport', '#scrub'].forEach(function (sel) {
+        var r = box($(sel)); if (!r) return;
+        obs.push({ l: r.left, r: r.right, t: r.top, b: r.bottom });
+        dock = dock ? { t: Math.min(dock.t, r.top), b: Math.max(dock.b, r.bottom) } : { t: r.top, b: r.bottom };
+      });
+      ys.push(bar ? bar + M : top);
+      if (dock) ys.push(dock.b + M);
+      if (g) ys.push(g.bottom + lb + M, g.top - lb - M - h);
+      if (dock) ys.push(dock.t - M - h);
+      var y = null;
+      for (var i = 0; i < ys.length && y === null; i++) {
+        var t = ys[i];
+        if (t < top - 0.5 || t + h > bottom + 0.5) continue;
+        var a = { l: x, r: x + w, t: t, b: t + h };
+        if (!obs.some(function (o) { return SndSpot.hit(a, o) > 0; })) y = t;
+      }
+      if (y === null) y = clamp(ys[0], top, Math.max(top, bottom - h));
+      b.style.left = Math.round(x - V.left) + 'px';
+      b.style.top = Math.round(y - V.top) + 'px';
+    },
     place: function () {
       var box = $('#snd-alert'), app = $('#app'), vp = VIEWS.prompter;
-      if (box.hidden || !Prompter.isOpen() || app.classList.contains('tp-lf') || app.classList.contains('tp-lr')) {
+      var land = app.classList.contains('tp-lf') || app.classList.contains('tp-lr'), full = vp.classList.contains('cam-full');
+      SndSpot.badge(Prompter.isOpen() && full && !land);
+      if (box.hidden || !Prompter.isOpen() || land) {
         SndSpot.reset(box);
         // deitado: o lugar e do CSS; se a explicacao nao couber no espaco, fica so o titulo (nada cortado)
         if (!box.hidden && box.scrollHeight > box.clientHeight + 1) box.classList.add('tight');
@@ -3085,7 +3219,8 @@
       var V = vp.getBoundingClientRect(), S = SndSpot.safe();
       if (!V.width || !V.height) return;
       var top = V.top + 8 + S.t, bottom = V.bottom - 8 - S.b, left = V.left + 8 + S.l, right = V.right - 8 - S.r;
-      var g = R($('#guide')), c = R($('#content')), cam = R($('#cam')), lb = Prompter.lineBox || 0;
+      // tela cheia (v10.0): a imagem e o fundo, nao um obstaculo
+      var g = R($('#guide')), c = R($('#content')), cam = full ? null : R($('#cam')), lb = Prompter.lineBox || 0;
       var hard = [], zt = top, zb = top;
       if (g) {
         zt = g.t - lb; zb = g.b + lb;
@@ -3164,7 +3299,7 @@
   };
   // controles que aparecem ou somem, selo REC, selo de pausa, imagem, tela deitada: o aviso procura o lugar de novo
   (function () {
-    var mo = new MutationObserver(function () { if (!$('#snd-alert').hidden) SndSpot.place(); });
+    var mo = new MutationObserver(function () { if (Prompter.isOpen()) SndSpot.place(); });
     mo.observe(VIEWS.prompter, { attributes: true, attributeFilter: ['class'] });
     mo.observe($('#app'), { attributes: true, attributeFilter: ['class'] });
     ['#rec-badge', '#pause-pill', '#voice-flag', '#cam'].forEach(function (s) { mo.observe($(s), { attributes: true, attributeFilter: ['hidden', 'class'] }); });
@@ -3592,10 +3727,11 @@
         return;
       }
       app.style.setProperty('--dockh', $('#dock').offsetHeight + 'px');
-      app.style.setProperty('--camw', ($('#cam').hidden ? 0 : $('#cam').offsetWidth) + 'px');
+      // tela cheia (v10.0): a imagem nao ocupa coluna (o lugar do aviso e do CSS)
+      app.style.setProperty('--camw', ($('#cam').hidden || VIEWS.prompter.classList.contains('cam-full') ? 0 : $('#cam').offsetWidth) + 'px');
     },
     clear: function () {
-      ['tp-lf', 'tp-lr', 'tp-lens-l', 'tp-lens-r'].forEach(function (c) { $('#app').classList.remove(c); });
+      ['tp-lf', 'tp-lr', 'tp-lens-l', 'tp-lens-r', 'tp-full', 'tp-fctl'].forEach(function (c) { $('#app').classList.remove(c); });
       Lay.measure();
     }
   };
@@ -3609,6 +3745,409 @@
   }
   if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', onTurn);
   window.addEventListener('orientationchange', onTurn);
+
+  /* ============================ Filtros de imagem (v10.0) ============================
+     Pedido do Claudio (11/11/2026): "permitir colocar filtros leves de melhoria de rosto, imagem". Valem no
+     ARQUIVO, nao so na tela: o que aparece na tela e o mesmo canvas que vai para a gravacao.
+     - Desligado (padrao) ou tudo em zero: nada disto existe. A camera vai direto para o MediaRecorder, como
+       ate a v9.8: sem canvas, sem WebGL, sem laco extra.
+     - Ligado: um passe de shader WebGL (luz, contraste, cor, temperatura e pele suave por desfoque que
+       preserva bordas, so onde a cor e de pele, mascara em YCbCr: olhos, boca e cabelo ficam nitidos) num
+       canvas fora da tela; um canvas 2D copia o resultado. O 2D e o que fica na tela e o que a gravacao
+       captura (captureStream + o som da camera). So desenha quadro novo (requestVideoFrameCallback).
+     - Com filtro, no maximo Full HD: a camera e pedida em 1080 e o canvas nunca passa de 1920x1080 (4K num
+       canvas esquenta demais).
+     - Falhou (WebGL perdido) ou nao acompanha a camera (abaixo de ~20 quadros/s perdendo quadros por 3 s):
+       o filtro desliga com aviso. Gravando, o 2D passa a copiar a imagem crua: a gravacao segue no mesmo
+       arquivo, sem corte; acabou a gravacao, o caminho volta a ser o direto.
+     - A camera ociosa (nap) e sair do prompter param o laco (Rec.release -> Fx.stop).
+     - Ajustes por modo (MODE_KEYS 'fx'): a frente e a traseira pedem ajustes diferentes. Faixas limitadas
+       para ficar leve (nada de cara de plastico). */
+  var FX_KEYS = ['skin', 'light', 'contrast', 'sat', 'temp'];
+  var FX_RANGE = { skin: [0, 100], light: [-50, 50], contrast: [-50, 50], sat: [-50, 50], temp: [-50, 50] };
+  var FX_LABEL = { skin: 'Pele suave', light: 'Luz', contrast: 'Contraste', sat: 'Cor', temp: 'Temperatura' };
+  var FX_PRESETS = {
+    off: { skin: 0, light: 0, contrast: 0, sat: 0, temp: 0 },
+    // (multiplos de 5: o passo das reguas)
+    natural: { skin: 0, light: 10, contrast: 5, sat: 10, temp: 5 },     // um toque de luz e cor
+    soft: { skin: 50, light: 10, contrast: 0, sat: 5, temp: 0 },        // pele suave leve + luz
+    warm: { skin: 0, light: 5, contrast: 5, sat: 10, temp: 30 }         // mais quente
+  };
+  var FX_NAME = { off: 'Desligado', natural: 'Natural', soft: 'Suave', warm: 'Quente' };
+  function fxNorm(f) {
+    f = f && typeof f === 'object' ? f : {};
+    var o = { p: Object.prototype.hasOwnProperty.call(FX_PRESETS, f.p) || f.p === 'custom' ? f.p : 'off' };
+    FX_KEYS.forEach(function (k) { o[k] = clamp(Math.round(Number(f[k]) || 0), FX_RANGE[k][0], FX_RANGE[k][1]); });
+    return o;
+  }
+  // algum ajuste fora do zero? Tudo em zero = desligado (o caminho direto de sempre)
+  function fxAny(f) { var n = fxNorm(f); return FX_KEYS.some(function (k) { return n[k] !== 0; }); }
+
+  var FX_VS = 'attribute vec2 p;varying vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}';
+  var FX_FS = [
+    '#ifdef GL_FRAGMENT_PRECISION_HIGH', 'precision highp float;', '#else', 'precision mediump float;', '#endif',
+    'varying vec2 uv;uniform sampler2D tex;uniform vec2 off[16];',
+    'uniform float skin,gam,con,sat,tmp;',
+    // pele: Cb 77..127 e Cr 133..173 (em 0..255), com bordas suaves; nem muito escuro nem estourado
+    'float skinMask(vec3 c){',
+    ' float y=dot(c,vec3(.299,.587,.114));',
+    ' float cb=.5-.168736*c.r-.331264*c.g+.5*c.b, cr=.5+.5*c.r-.418688*c.g-.081312*c.b;',
+    ' return smoothstep(.282,.306,cb)*(1.-smoothstep(.494,.518,cb))*smoothstep(.51,.534,cr)*(1.-smoothstep(.67,.694,cr))',
+    '  *smoothstep(.1,.18,y)*(1.-smoothstep(.93,.99,y));}',
+    'void main(){',
+    ' vec3 c=texture2D(tex,uv).rgb;',
+    ' if(skin>0.){float m=skinMask(c);',
+    // desfoque que preserva bordas: 16 amostras em dois aneis, peso pela diferenca de cor
+    '  if(m>.02){vec3 s=c;float ws=1.;',
+    '   for(int i=0;i<16;i++){vec3 q=texture2D(tex,uv+off[i]).rgb;vec3 d=q-c;float w=exp(-dot(d,d)*90.);s+=q*w;ws+=w;}',
+    '   c=mix(c,s/ws,m*skin);}}',
+    ' c=pow(max(c,vec3(0.)),vec3(gam));',
+    ' c=(c-.5)*con+.5;',
+    ' float l=dot(c,vec3(.299,.587,.114));c=mix(vec3(l),c,sat);',
+    ' c*=vec3(1.+tmp,1.+tmp*.2,1.-tmp);',
+    ' gl_FragColor=vec4(clamp(c,0.,1.),1.);}'
+  ].join('\n');
+
+  var Fx = {
+    gl: null, prog: null, tex: null, U: null,
+    glc: null,            // canvas do WebGL (fora da tela)
+    out: null, ctx: null, // canvas 2D: na tela e na gravacao
+    running: false,
+    broken: '',           // falhou nesta rodada: 'gl' | 'slow' (gravando, o 2D copia a imagem crua)
+    vfc: 0, w: 0, h: 0, vw: 0, vh: 0,
+    win: null, fps: 0,
+    frames: 0,            // quadros desenhados (para os testes)
+    slowTest: 0,          // gancho de teste: atraso artificial por quadro (ms)
+    MIN_FPS: 20, SLOW_S: 3,
+
+    supported: function () {
+      return typeof HTMLVideoElement !== 'undefined' && 'requestVideoFrameCallback' in HTMLVideoElement.prototype
+        && typeof HTMLCanvasElement.prototype.captureStream === 'function';
+    },
+    // o filtro deve rodar? (gravacao ligada, imagem na tela, algum ajuste fora do zero)
+    wanted: function () { return Rec.enabled() && !!settings.camPreview && fxAny(settings.fx) && Fx.supported(); },
+
+    /* liga ou desliga o laco conforme os ajustes, a camera e a gravacao. Gravando, o caminho nao muda (o filtro
+       e decidido ao comecar a gravar); so sai o laco que a gravacao nao usa. */
+    sync: function () {
+      if (Rec.active()) {
+        if (Fx.running && !Rec.fxRec) Fx.stop();
+        Fx.paint();
+        return;
+      }
+      var want = Fx.wanted() && !!Rec.stream && Prompter.isOpen();
+      if (want && !Fx.running) Fx.start();
+      else if (!want && Fx.running) Fx.stop();
+      // 4K escolhido: com filtro a camera vem em Full HD, sem filtro volta ao 4K (so fora da gravacao)
+      if (Rec.stream && !Rec.starting && Prompter.isOpen() && Rec.streamBig !== Rec.big()) { Rec.release(true); Rec.prepare(); }
+      Fx.paint();
+    },
+    paint: function () {
+      $('#cam').classList.toggle('fx-on', Fx.running);
+      FxUI.sync();
+    },
+
+    init: function () {
+      if (Fx.gl && !Fx.gl.isContextLost()) return true;
+      Fx.gl = null;
+      try {
+        if (!Fx.ctx) { Fx.out = $('#cam-fx'); Fx.ctx = Fx.out.getContext('2d', { alpha: false }); }
+        if (!Fx.ctx) return false;
+        var c = Fx.glc = document.createElement('canvas');
+        c.width = 2; c.height = 2;
+        // o sistema derrubou o WebGL (placa de video ocupada, memoria): desliga o filtro, a gravacao segue
+        c.addEventListener('webglcontextlost', function (ev) {
+          ev.preventDefault();
+          if (Fx.glc !== c) return;
+          Fx.gl = null;
+          if (Fx.running) Fx.fail('gl');
+        });
+        var gl = c.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: 'low-power' });
+        if (!gl) return false;
+        var sh = function (type, src) {
+          var x = gl.createShader(type);
+          gl.shaderSource(x, src); gl.compileShader(x);
+          if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x) || 'shader');
+          return x;
+        };
+        var prog = gl.createProgram();
+        gl.attachShader(prog, sh(gl.VERTEX_SHADER, FX_VS));
+        gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FX_FS));
+        gl.bindAttribLocation(prog, 0, 'p');
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || 'link');
+        gl.useProgram(prog);
+        var buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+        var tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.uniform1i(gl.getUniformLocation(prog, 'tex'), 0);
+        Fx.U = {};
+        ['off', 'skin', 'gam', 'con', 'sat', 'tmp'].forEach(function (k) { Fx.U[k] = gl.getUniformLocation(prog, k); });
+        Fx.gl = gl; Fx.prog = prog; Fx.tex = tex;
+        Fx.w = Fx.h = 0;
+        return true;
+      } catch (e) { Fx.gl = null; return false; }
+    },
+    // tamanho do canvas = o do quadro da camera, no maximo Full HD (o maior lado 1920, o menor 1080)
+    size: function () {
+      var v = $('#cam-video'), vw = v.videoWidth, vh = v.videoHeight;
+      if (!vw || !vh) return false;
+      Fx.vw = vw; Fx.vh = vh;
+      var k = Math.min(1, 1920 / Math.max(vw, vh), 1080 / Math.min(vw, vh));
+      var w = Math.max(2, Math.round(vw * k / 2) * 2), h = Math.max(2, Math.round(vh * k / 2) * 2);
+      if (w === Fx.w && h === Fx.h) return true;
+      Fx.w = w; Fx.h = h;
+      Fx.out.width = w; Fx.out.height = h;
+      if (Fx.glc) { Fx.glc.width = w; Fx.glc.height = h; }
+      if (Fx.gl) Fx.gl.viewport(0, 0, w, h);
+      return true;
+    },
+    // ajustes da tela -> uniformes do shader (faixas limitadas: o maximo de cada regua continua leve)
+    uniforms: function () {
+      if (Fx.uFor === settings.fx && Fx.uW === Fx.w && Fx.uH === Fx.h && Fx.uGl === Fx.gl) return;   // nada mudou
+      Fx.uFor = settings.fx; Fx.uW = Fx.w; Fx.uH = Fx.h; Fx.uGl = Fx.gl;
+      var gl = Fx.gl, f = fxNorm(settings.fx), U = Fx.U;
+      gl.uniform1f(U.skin, 0.7 * f.skin / 100);
+      gl.uniform1f(U.gam, Math.pow(2, -0.45 * f.light / 50));
+      gl.uniform1f(U.con, 1 + 0.3 * f.contrast / 50);
+      gl.uniform1f(U.sat, 1 + 0.4 * f.sat / 50);
+      gl.uniform1f(U.tmp, 0.08 * f.temp / 50);
+      var r = Math.max(1.5, Math.min(Fx.w, Fx.h) * 0.0045), o = [];
+      for (var i = 0; i < 16; i++) {
+        var a = (i % 8) * Math.PI / 4 + (i >= 8 ? Math.PI / 8 : 0), rr = i >= 8 ? r * 2 : r;
+        o.push(Math.cos(a) * rr / Fx.w, Math.sin(a) * rr / Fx.h);
+      }
+      gl.uniform2fv(U.off, new Float32Array(o));
+    },
+
+    start: function () {
+      if (Fx.running) return true;
+      Fx.broken = '';
+      if (!Fx.supported() || !Fx.init()) { Fx.running = true; Fx.fail('gl'); return false; }
+      Fx.running = true;
+      Fx.win = null;
+      Fx.size();
+      Fx.loop();
+      Fx.paint();
+      return true;
+    },
+    stop: function () {
+      var v = $('#cam-video');
+      if (Fx.vfc && v.cancelVideoFrameCallback) safe(function () { v.cancelVideoFrameCallback(Fx.vfc); });
+      Fx.vfc = 0;
+      if (!Fx.running) return;
+      Fx.running = false;
+      Fx.win = null;
+      Fx.broken = '';
+      // devolve a memoria dos quadros grandes
+      if (Fx.out) { Fx.out.width = Fx.out.height = 2; }
+      if (Fx.glc) { Fx.glc.width = Fx.glc.height = 2; }
+      Fx.w = Fx.h = 0;
+      Fx.paint();
+    },
+    loop: function () {
+      if (!Fx.running) return;
+      var v = $('#cam-video');
+      Fx.vfc = v.requestVideoFrameCallback(Fx.frame);
+    },
+    // um quadro novo da camera: desenha e mede se esta acompanhando
+    frame: function (t, meta) {
+      Fx.vfc = 0;
+      if (!Fx.running) return;
+      Fx.loop();
+      try { Fx.draw(); } catch (e) { if (!Fx.broken) Fx.fail('gl'); }
+      Fx.watch(t, meta);
+    },
+    draw: function () {
+      var v = $('#cam-video');
+      if (!v.videoWidth || !v.videoHeight) return;
+      if (Fx.slowTest) { var until = performance.now() + Fx.slowTest; while (performance.now() < until) { /* teste: celular lento */ } }
+      // gravando, o tamanho nao muda (o arquivo tem um tamanho so)
+      if ((v.videoWidth !== Fx.vw || v.videoHeight !== Fx.vh || !Fx.w) && !(Rec.active() && Rec.fxRec && Fx.w)) Fx.size();
+      if (Fx.broken || !Fx.gl || Fx.gl.isContextLost()) {
+        if (!Fx.broken) Fx.fail('gl');
+        Fx.ctx.drawImage(v, 0, 0, Fx.w, Fx.h);
+        Fx.frames++;
+        return;
+      }
+      var gl = Fx.gl;
+      gl.bindTexture(gl.TEXTURE_2D, Fx.tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, v);
+      Fx.uniforms();
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      Fx.ctx.drawImage(Fx.glc, 0, 0, Fx.w, Fx.h);
+      Fx.frames++;
+    },
+    /* esta acompanhando a camera? Janelas de 1 s: abaixo de MIN_FPS desenhados E perdendo quadros que a
+       camera entregou (camera lenta no escuro, 15 quadros/s todos desenhados, nao conta) por SLOW_S janelas */
+    watch: function (t, meta) {
+      if (Fx.broken) return;
+      if (document.visibilityState !== 'visible') { Fx.win = null; return; }
+      var pf = meta && typeof meta.presentedFrames === 'number' ? meta.presentedFrames : null, w = Fx.win;
+      if (!w) { Fx.win = { t0: t, p0: pf, n: 0, bad: 0 }; return; }
+      w.n++;
+      if (t - w.t0 < 1000) return;
+      var secs = (t - w.t0) / 1000, drawn = w.n / secs, shown = pf !== null && w.p0 !== null ? (pf - w.p0) / secs : drawn;
+      Fx.fps = Math.round(drawn);
+      var slow = drawn < Fx.MIN_FPS && drawn < shown * 0.8;
+      var bad = slow ? w.bad + 1 : 0;
+      Fx.win = { t0: t, p0: pf, n: 0, bad: bad };
+      if (bad >= Fx.SLOW_S) Fx.fail('slow');
+    },
+    /* o filtro sai: aviso, ajustes zerados (a pessoa liga de novo quando quiser). Gravando pelo canvas, o 2D
+       copia a imagem crua ate a gravacao acabar (mesmo arquivo, sem corte); fora da gravacao, o laco para. */
+    fail: function (why) {
+      if (Fx.broken) return;
+      Fx.broken = why;
+      settings.fx = fxNorm(null);
+      saveSettings();
+      var rec = Rec.active();
+      Toast.show((why === 'slow' ? 'O filtro deixava o celular lento e foi desligado.' : 'O filtro de imagem parou de funcionar neste celular e foi desligado.')
+        + (rec ? ' A gravação continua.' : ''), null, null, 8000);
+      if (!(rec && Rec.fxRec)) setTimeout(Fx.sync, 0);
+      FxUI.sync();
+    },
+    // faixa de video do canvas para uma gravacao (o MediaRecorder grava esta faixa com o som da camera)
+    track: function () {
+      if (!Fx.out || !Fx.w) return null;
+      try { return Fx.out.captureStream(30).getVideoTracks()[0] || null; } catch (e) { return null; }
+    },
+    // "Antes": segurando, a tela mostra a imagem sem filtro (o arquivo nao muda)
+    before: function (on) { $('#cam').classList.toggle('fx-before', !!on); }
+  };
+
+  /* controles dos filtros: os mesmos na folha da varinha (por cima da imagem ao vivo) e em Ajustes > Imagem */
+  var FxUI = {
+    roots: [],
+    build: function (root) {
+      var chips = el('div', 'chips fx-presets');
+      chips.setAttribute('role', 'radiogroup');
+      chips.setAttribute('aria-label', 'Filtro pronto');
+      Object.keys(FX_PRESETS).forEach(function (k) {
+        var b = el('button', 'chip', FX_NAME[k]);
+        b.type = 'button'; b.setAttribute('role', 'radio'); b.dataset.fxp = k;
+        chips.appendChild(b);
+      });
+      root.appendChild(chips);
+      FX_KEYS.forEach(function (k) {
+        var row = el('label', 'fx-row');
+        row.appendChild(el('span', 'fx-name', FX_LABEL[k]));
+        var inp = el('input');
+        inp.type = 'range'; inp.min = String(FX_RANGE[k][0]); inp.max = String(FX_RANGE[k][1]); inp.step = '5'; inp.dataset.fx = k;
+        inp.setAttribute('aria-label', FX_LABEL[k]);
+        row.appendChild(inp);
+        row.appendChild(el('output', 'fx-val'));
+        root.appendChild(row);
+      });
+      root.appendChild(el('p', 'hint fx-note fx-4k', 'Com filtro, o vídeo sai em Full HD.'));
+      root.appendChild(el('p', 'hint fx-note fx-recnote', 'Pare a gravação para mudar os filtros.'));
+      root.appendChild(el('p', 'hint fx-note fx-nocam', 'Com a imagem da câmera escondida, o vídeo sai sem filtro.'));
+      root.addEventListener('click', function (ev) {
+        var b = ev.target.closest('[data-fxp]');
+        if (!b || Rec.active()) return;
+        FxUI.set(Object.assign({ p: b.dataset.fxp }, FX_PRESETS[b.dataset.fxp]));
+        haptic(6);
+      });
+      root.addEventListener('input', function (ev) {
+        var t = ev.target;
+        if (!t.dataset || !t.dataset.fx || Rec.active()) return;
+        var f = fxNorm(settings.fx);
+        f[t.dataset.fx] = Number(t.value);
+        f.p = 'custom';
+        Object.keys(FX_PRESETS).forEach(function (k) {
+          if (FX_KEYS.every(function (x) { return FX_PRESETS[k][x] === f[x]; })) f.p = k;
+        });
+        FxUI.set(f, true);
+      });
+      root.addEventListener('change', function (ev) { if (ev.target.dataset && ev.target.dataset.fx) saveSettings(); });
+      FxUI.roots.push(root);
+    },
+    // ajustes novos: sempre um objeto novo (a memoria do modo guarda o anterior)
+    set: function (f, live) {
+      settings.fx = fxNorm(f);
+      if (!live) saveSettings();
+      Fx.sync();
+      FxUI.sync();
+    },
+    sync: function () {
+      var f = fxNorm(settings.fx), rec = Rec.active(), on = fxAny(f);
+      var hd = on && settings.recQuality === '4k', noCam = on && !settings.camPreview;
+      FxUI.roots.forEach(function (root) {
+        Array.prototype.forEach.call(root.querySelectorAll('[data-fxp]'), function (b) {
+          var sel = b.dataset.fxp === (on ? f.p : 'off');
+          b.setAttribute('aria-checked', String(sel));
+          b.classList.toggle('on', sel);
+          b.disabled = rec;
+        });
+        Array.prototype.forEach.call(root.querySelectorAll('input[data-fx]'), function (inp) {
+          var k = inp.dataset.fx, v = f[k];
+          if (Number(inp.value) !== v) inp.value = String(v);
+          inp.disabled = rec;
+          var o = inp.parentNode.querySelector('output');
+          if (o) o.textContent = (v > 0 && k !== 'skin' ? '+' : '') + v;
+        });
+        root.querySelector('.fx-4k').hidden = !hd;
+        root.querySelector('.fx-recnote').hidden = !rec;
+        root.querySelector('.fx-nocam').hidden = !noCam;
+      });
+    }
+  };
+
+  /* folha dos filtros (varinha): pequena, por cima da imagem ao vivo; roteiro e controles saem da frente
+     enquanto ela esta aberta. Toque fora dela ou o pedal fecham (o pedal tambem executa o comando). */
+  var FxSheet = {
+    isOpen: function () { return !$('#fx-sheet').hidden; },
+    open: function () {
+      if (Rec.active() || !Prompter.isOpen()) return;
+      Peek.hide(true);
+      Prompter.pause(true);
+      FxUI.sync();
+      $('#fx-sheet').hidden = false;
+      VIEWS.prompter.classList.add('fx-open');
+      Prompter.showUI();
+    },
+    close: function () {
+      if ($('#fx-sheet').hidden) return;
+      $('#fx-sheet').hidden = true;
+      VIEWS.prompter.classList.remove('fx-open');
+      Fx.before(false);
+      saveSettings();
+      blurActive();
+      if (Prompter.isOpen()) Prompter.showUI();
+    },
+    toggle: function () { if (FxSheet.isOpen()) FxSheet.close(); else FxSheet.open(); }
+  };
+
+  /* "Ver imagem" (olho, v10.0): roteiro, barra do topo, painel e avisos saem para conferir a imagem limpa.
+     Qualquer toque ou pedal traz tudo de volta e NAO inicia nada nesse toque (o mesmo cuidado do "Fechar"
+     da ultima gravacao, v8.7). O texto pausa ao entrar. */
+  var Peek = {
+    on: false,
+    show: function () {
+      if (!Rec.stream || !VIEWS.prompter.classList.contains('cam-full') || !Prompter.isOpen()) return;
+      FxSheet.close();
+      Prompter.pause(true);
+      Peek.on = true;
+      $('#peek-hint').textContent = cue('Pise ou toque na tela para voltar', 'Toque na tela para voltar');
+      VIEWS.prompter.classList.add('peek');
+      Rec.poke();
+    },
+    hide: function (silent) {
+      if (!Peek.on) return;
+      Peek.on = false;
+      VIEWS.prompter.classList.remove('peek');
+      if (!silent && Prompter.isOpen()) { Prompter.showUI(); Rec.poke(); }
+    }
+  };
 
   /* ---- botoes do operador ---- */
 
@@ -3674,6 +4213,25 @@
     else Prompter.toggle();
   });
   opButton('#pc-settings', function () { Settings.open(); });
+  // v10.0, tela cheia: filtros (varinha) e "Ver imagem" (olho); em pe ficam no painel, deitado na barra do topo
+  opButton('#pc-fx', function () { FxSheet.toggle(); });
+  opButton('#pt-fx', function () { FxSheet.toggle(); });
+  opButton('#pc-peek', function () { Peek.show(); });
+  opButton('#pt-peek', function () { Peek.show(); });
+  $('#btn-fx-close').addEventListener('click', function (ev) { ev.stopPropagation(); FxSheet.close(); });
+  (function () {
+    var b = $('#btn-fx-before');
+    var on = function (ev) { if (ev.button > 0) return; ev.preventDefault(); Fx.before(true); safe(function () { b.setPointerCapture(ev.pointerId); }); };
+    var off = function () { Fx.before(false); };
+    b.addEventListener('pointerdown', on);
+    ['pointerup', 'pointercancel', 'lostpointercapture', 'pointerleave'].forEach(function (n) { b.addEventListener(n, off); });
+    b.addEventListener('keydown', function (ev) { if (ev.key === ' ' || ev.key === 'Enter') Fx.before(true); });
+    b.addEventListener('keyup', off);
+    b.addEventListener('blur', off);
+    b.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+  })();
+  FxUI.build($('#fx-ctl'));
+  FxUI.build($('#s-fx'));
   opButton('#pc-mirror', function () {
     settings.mirrorH = !settings.mirrorH;
     saveSettings();
@@ -3795,6 +4353,10 @@
   VIEWS.prompter.addEventListener('click', function (ev) {
     // o video da ultima gravacao fica dentro desta tela: tocar nele (ou no Fechar) nao pode iniciar uma gravacao
     if (ev.target.closest('.p-top,.dock,.rec-badge,.player,.flipwarn') || Player.isOpen() || Flip.isShown() || Lay.isShown()) return;
+    // v10.0: folha dos filtros aberta: tocar fora dela so fecha (nao inicia nada)
+    if (FxSheet.isOpen()) { if (!ev.target.closest('.fx-card')) FxSheet.close(); return; }
+    // "Ver imagem": o toque so traz o roteiro e os controles de volta (nao inicia nem grava)
+    if (Peek.on) { Peek.hide(); return; }
     if (Prompter.sheetOpen()) return;
     if (now() - Gestures.swipeAt < 450) return;
     if (Prompter.uiHidden()) {
@@ -3883,9 +4445,15 @@
         if (!rec.repeat) { if (a.id === 'playPause') Player.toggle(); else if (a.id === 'back') Player.close(); }
         return true;
       }
+      if (Peek.on) {                       // "Ver imagem" (v10.0): o pedal so traz o roteiro de volta, nada inicia nem grava
+        if (!a) return false;
+        if (ev && ev.cancelable) ev.preventDefault();
+        if (!rec.repeat) Peek.hide();
+        return true;
+      }
       if (Prompter.sheetOpen()) {
         if (!a) return false;            // tecla comum segue para o controle da folha
-        Settings.close();                // pisada no pedal: volta para a leitura e executa
+        Prompter.closeSheets();          // pisada no pedal: volta para a leitura e executa
       }
       if (ev && ev.cancelable) ev.preventDefault();
       if (!a) {
@@ -3948,13 +4516,13 @@
 
     if (Prompter.isOpen()) {
       if (Prompter.sheetOpen()) {
-        if (ev.key === 'Escape') { ev.preventDefault(); Settings.close(); return; }
+        if (ev.key === 'Escape') { ev.preventDefault(); Prompter.closeSheets(); return; }
         if (!actionForTokens(tokens)) return;           // Tab, setas nos controles da folha etc.
         ev.stopPropagation();
         Input.signal(tokens, rec, ev);                  // fecha a folha e executa (preventDefault dentro)
         return;
       }
-      if (ev.key === 'Escape') { ev.preventDefault(); if (UpLeave.isShown()) UpLeave.stay(); else Prompter.exit(); return; }
+      if (ev.key === 'Escape') { ev.preventDefault(); if (UpLeave.isShown()) UpLeave.stay(); else if (Peek.on) Peek.hide(); else Prompter.exit(); return; }
       ev.stopPropagation();
       var handled = Input.signal(tokens, rec, ev);
       if (!handled && NAV_KEYS.indexOf(ev.key) !== -1) ev.preventDefault();
@@ -4045,7 +4613,7 @@
       return !!Input.capture || current === 'pedal' || (Prompter.isOpen() && !Player.isOpen());
     },
     // o prompter so rola na mao fora do arrasto do pedal
-    manualAllowed: function () { return Prompter.isOpen() && !Prompter.sheetOpen() && !Player.isOpen() && !Input.capture; },
+    manualAllowed: function () { return Prompter.isOpen() && !Prompter.sheetOpen() && !Player.isOpen() && !Input.capture && !Peek.on; },
 
     onStart: function (ev) {
       if (!Gestures.interested()) return;
@@ -4147,7 +4715,8 @@
   document.addEventListener('touchmove', function (ev) {
     if (ev.touches.length !== 1 || !ev.cancelable) return;
     var t = ev.touches[0];
-    if (Math.abs(t.clientX - NavGuard.x) > Math.abs(t.clientY - NavGuard.y) && !isEditable(ev.target)) ev.preventDefault();
+    // a regua (input range, v10.0: filtros e transparencia) e arrastada de lado: nao bloqueia
+    if (Math.abs(t.clientX - NavGuard.x) > Math.abs(t.clientY - NavGuard.y) && !isEditable(ev.target) && ev.target.type !== 'range') ev.preventDefault();
   }, { passive: false, capture: true });
 
   document.addEventListener('touchstart', Gestures.onStart, { passive: true });
@@ -4478,6 +5047,7 @@
       c.style.setProperty('--tfamily', FAMILIES[settings.family] || FAMILIES.hyper);
       c.style.setProperty('--talign', settings.textAlign === 'center' ? 'center' : 'left');
       $('#scroller').style.setProperty('--pad', settings.margin + '%');
+      VIEWS.prompter.style.setProperty('--ui-a', (settings.uiAlpha / 100).toFixed(2));   // v10.0: fundo escuro da tela cheia
       st.classList.toggle('mirror-h', !!settings.mirrorH);
       st.classList.toggle('mirror-v', !!settings.mirrorV);
       // camera frontal (ou linha de leitura embaixo): todos os controles no alto; a parte de baixo,
@@ -4515,7 +5085,12 @@
       radio('#s-recscreen', 'scr', settings.recScreen);
       radio('#s-campos', 'cpos', settings.camPos);
       radio('#s-talign', 'align', settings.textAlign);
-      $('#s-campos').closest('.field').hidden = landMode();   // deitado, a imagem tem lugar fixo (Lay)
+      // deitado, a imagem fica em tela cheia ou no canto do layout deitado (Lay): "no alto" e "acima da linha" nao valem
+      Array.prototype.forEach.call(document.querySelectorAll('#s-campos [data-cpos="top"],#s-campos [data-cpos="line"]'), function (b) { b.hidden = landMode(); });
+      $('#s-uialpha').value = String(settings.uiAlpha);
+      $('#s-uialpha-val').textContent = settings.uiAlpha + '%';
+      $('#s-uialpha-row').hidden = settings.camPos !== 'full';
+      FxUI.sync();
       $('#s-record').checked = !!settings.record;
       $('#s-drive').checked = !!settings.driveUpload;
       $('#s-campreview').checked = !!settings.camPreview;
@@ -4622,7 +5197,14 @@
         if (on) Rec.prepare(); else Rec.release();
         Prompter.updateUI();
       });
-      flag('#s-campreview', 'camPreview');
+      flag('#s-campreview', 'camPreview', function () { Fx.sync(); });
+      // v10.0: transparencia do fundo da tela cheia (opacidade 20 a 90%), lembrada
+      $('#s-uialpha').addEventListener('input', function () {
+        settings.uiAlpha = clamp(Math.round(Number(this.value) || 55), 20, 90);
+        VIEWS.prompter.style.setProperty('--ui-a', (settings.uiAlpha / 100).toFixed(2));
+        $('#s-uialpha-val').textContent = settings.uiAlpha + '%';
+      });
+      $('#s-uialpha').addEventListener('change', function () { saveSettings(); haptic(6); });
       flag('#s-drive', 'driveUpload', function (on) {
         if (on) Up.run();
         Up.paint(true);
@@ -4967,5 +5549,5 @@
   }
 
   // gancho para teste automatizado (nao afeta o uso)
-  window.__tp = { Lay: Lay, SndSpot: SndSpot, Toast: Toast, Prompter: Prompter, Rec: Rec, Up: Up, UpLeave: UpLeave, Guard: Guard, Modes: Modes, Flip: Flip, Folder: Folder, SaveAsk: SaveAsk, Player: Player, Input: Input, Voice: Voice, GDocs: GDocs, Sound: Sound, Gestures: Gestures, settings: settings, keymap: function () { return keymap; }, toNatural: toNatural, swipeToken: swipeToken, Script: Script };
+  window.__tp = { Fx: Fx, FxUI: FxUI, FxSheet: FxSheet, Peek: Peek, Lay: Lay, SndSpot: SndSpot, Toast: Toast, Prompter: Prompter, Rec: Rec, Up: Up, UpLeave: UpLeave, Guard: Guard, Modes: Modes, Flip: Flip, Folder: Folder, SaveAsk: SaveAsk, Player: Player, Input: Input, Voice: Voice, GDocs: GDocs, Sound: Sound, Gestures: Gestures, settings: settings, keymap: function () { return keymap; }, toNatural: toNatural, swipeToken: swipeToken, Script: Script };
 })();

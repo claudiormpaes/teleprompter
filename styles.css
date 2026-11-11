@@ -854,3 +854,166 @@ body{
 #view-prompter .snd-alert:is([data-st=ok],[data-st=wait]) div{gap:3px}
 #view-prompter .snd-alert:is([data-st=ok],[data-st=wait]) b{font-size:14px;line-height:1.05;letter-spacing:.02em;white-space:nowrap}
 #view-prompter .snd-alert:is([data-st=ok],[data-st=wait]) .snd-vu{height:3px;border-radius:2px}
+
+/* ---------- v10.0: imagem da camera em tela cheia ----------
+   Pedido do Claudio (11/11): "Vamos deixar o video em tela cheia. O roteiro, controles etc ficam com um fundo
+   com transparencia". A imagem ocupa a tela toda, atras de tudo (classe cam-full, Rec.paint). Roteiro, barra
+   do topo, painel, selo REC, faixa do som e avisos ficam por cima, cada um com fundo escuro semitransparente
+   (--ui-a: Ajustes > Transparencia do fundo). Sem backdrop-filter nem desfoque: custam placa de video e
+   esquentam o celular. So rgba. Atras do texto, uma faixa escura em volta da linha de leitura, nao a tela
+   inteira; a letra ganha sombra para ler sobre a imagem. Camera desligada: fundo preto, como antes. */
+#view-prompter{--ui-a:.55}
+#view-prompter.cam-full{isolation:isolate}
+#app #view-prompter.cam-full .cam{
+  top:0;left:0;right:auto;bottom:auto;width:100%;height:100%;transform:none;
+  border:0;border-radius:0;background:#000;box-shadow:none;z-index:-1;container-type:size;
+}
+#app #view-prompter.cam-full .cam.sideways :is(video,canvas){width:100cqh;height:100cqw}
+/* filtro ligado: o canvas (o mesmo que vai para o arquivo) por cima do video; "Antes" mostra o video cru */
+.cam canvas{
+  display:none;position:absolute;left:50%;top:50%;width:100%;height:100%;object-fit:cover;
+  transform:translate(-50%,-50%) rotate(var(--camrot,0deg));
+}
+.cam.fx-on canvas{display:block}
+.cam.fx-on.fx-before canvas{visibility:hidden}
+.cam.sideways canvas{width:var(--camh);height:calc(var(--camh) * var(--camratio,.5625))}
+.cam.selfie canvas{transform:translate(-50%,-50%) rotate(var(--camrot,0deg)) scaleX(-1)}
+
+/* o texto: faixa escura em volta da linha (a linha, uma antes e uma depois), sombra na letra; o ja lido
+   apaga por paragrafo (o degrade escuro do alto cobriria a imagem) */
+.textband{display:none}
+#view-prompter.cam-full .textband{
+  display:block;position:absolute;left:0;right:0;pointer-events:none;
+  top:calc(var(--guidey,33%) - var(--linebox,70px) * 1.5 - 10px);
+  height:calc(var(--linebox,70px) * 3 + 20px);
+  background:rgba(0,0,0,var(--ui-a));
+}
+#view-prompter.cam-full .readfade{display:none}
+#view-prompter.cam-full .content{text-shadow:0 1px 2px rgba(0,0,0,.95),0 0 8px rgba(0,0,0,.75)}
+#view-prompter.cam-full .content .para.done{opacity:.42}
+#app.tp-lens-l #view-prompter.cam-full .textband{right:var(--panel)}
+#app.tp-lens-r #view-prompter.cam-full .textband{left:var(--panel)}
+#app.tp-lr #view-prompter.cam-full .textband{right:var(--camcol)}
+
+/* barra do topo e painel: fundo escuro liso, sem degrade */
+#view-prompter.cam-full .p-top{background:rgba(0,0,0,var(--ui-a));padding-bottom:8px}
+#view-prompter.cam-full .dock,#view-prompter.cam-full.ctl-top .dock{background:rgba(0,0,0,var(--ui-a))}
+#view-prompter.cam-full .pause-pill{background:rgba(0,0,0,var(--ui-a))}
+#view-prompter.cam-full .snd-alert:is([data-st=ok],[data-st=wait],[data-st=nap]){background:rgba(0,0,0,var(--ui-a))}
+/* em pe: painel mais baixo, para o texto da linha de leitura ficar livre ate em tela de 568 px */
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .dock{
+  gap:8px;padding:10px calc(12px + var(--safe-r)) calc(10px + var(--safe-b)) calc(12px + var(--safe-l));
+}
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full.ctl-top .dock{padding:8px calc(12px + var(--safe-r)) 10px calc(12px + var(--safe-l))}
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .dial{height:62px;border-radius:18px}
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .dial-read{margin-top:6px}
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .dial-read b{font-size:30px}
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .dial-sub{display:none}
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .btn.step{width:54px;height:54px;flex-basis:54px}
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .btn.step .ic{width:26px;height:26px}
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .btn.mid{width:52px;height:52px}
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .btn.play{width:64px;height:64px;box-shadow:0 0 0 4px var(--accent-soft)}
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .btn.play .ic{width:30px;height:30px}
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .transport{gap:clamp(6px,3vw,18px)}
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .scrub-track{height:30px}
+/* tela baixa (ate 700 px, ex. 360x640 e 320x568): painel ainda mais baixo, para caber o aviso do som com a causa */
+@media (max-height:700px){
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .dock{gap:6px;padding-top:6px;padding-bottom:calc(8px + var(--safe-b))}
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full.ctl-top .dock{padding-top:4px;padding-bottom:8px}
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .dial{height:52px;border-radius:16px}
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .dial-read{margin-top:4px}
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .dial-read b{font-size:26px}
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .btn.step{width:48px;height:48px;flex-basis:48px}
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .btn.mid{width:46px;height:46px}
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .btn.play{width:54px;height:54px}
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .btn.tool{width:44px;height:44px}
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .scrub{padding-top:0}
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .scrub-track{height:26px}
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .scrub-meta{font-size:12px}
+}
+/* celular estreito (ate 370 px): a barra do topo cabe com todos os botoes, inclusive o da ultima gravacao */
+@media (max-width:370px){
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .p-top{gap:4px;padding-left:calc(8px + var(--safe-l));padding-right:calc(8px + var(--safe-r))}
+  #app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full .p-top .btn.icon{width:42px;min-width:0;height:44px;min-height:44px}
+}
+/* parar: o selo REC e o botao do alto (o lugar no painel fica com a varinha e o olho) */
+#app:not(.tp-lf):not(.tp-lr) #view-prompter.cam-full #pc-stop{display:none}
+
+/* varinha (filtros) e olho (ver a imagem): em pe nas pontas da linha do play; deitado na barra do topo */
+.btn.tool{width:46px;height:46px;min-width:44px;min-height:44px;flex:0 0 auto;background:rgba(30,30,34,.85);border-color:rgba(255,255,255,.12)}
+.btn.tool .ic{width:24px;height:24px}
+.btn.tool.off{visibility:hidden}
+.p-top .btn.tool.off{display:none}
+#pc-fx{margin-right:auto}
+#pc-peek{margin-left:auto}
+#app.tp-lf .tool-dock,#app.tp-lr .tool-dock{display:none}
+#app:not(.tp-lf):not(.tp-lr) .tool-top{display:none}
+/* frente deitada: a barra do topo e so a largura do painel; os botoes encolhem para caberem todos */
+#app.tp-lf #view-prompter.cam-full .p-top{gap:4px;padding-left:8px;padding-right:8px}
+#app.tp-lf #view-prompter.cam-full .p-top .btn.icon{width:clamp(40px,calc((var(--panel) - 52px) / 7),48px);min-width:0;min-height:40px;height:clamp(40px,calc((var(--panel) - 52px) / 7),48px)}
+
+/* selo REC: em pe e o app que escolhe o lugar (SndSpot.badge); deitado, no alto do painel ou da coluna */
+.rec-badge.placed{right:auto;bottom:auto;transform:none}
+#app.tp-lf #view-prompter.cam-full .rec-badge{top:calc(var(--ptop) + var(--safe-t) + 2px);bottom:auto}
+#app.tp-lens-l #view-prompter.cam-full .rec-badge{left:auto;right:calc(var(--panel) / 2);transform:translateX(50%)}
+#app.tp-lens-r #view-prompter.cam-full .rec-badge{right:auto;left:calc(var(--panel) / 2);transform:translateX(-50%)}
+#app.tp-lf #view-prompter.cam-full.recording .snd-alert{
+  top:calc(var(--ptop) + var(--safe-t) + 50px);
+  max-height:calc(100vh - var(--ptop) - 50px - var(--dockh,124px) - 16px - var(--safe-t) - var(--safe-b));
+}
+/* SOM OK e OUVINDO, deitado na frente: selo pequeno no canto do painel (nao uma faixa da largura dele) */
+#app.tp-lens-l #view-prompter.cam-full .snd-alert:is([data-st=ok],[data-st=wait]){right:auto}
+#app.tp-lens-r #view-prompter.cam-full .snd-alert:is([data-st=ok],[data-st=wait]){left:auto}
+#app.tp-lr #view-prompter.cam-full .rec-badge{top:calc(68px + var(--safe-t));right:calc(12px + var(--safe-r))}
+/* traseira deitada: o selo "Pausado" (so com os controles escondidos) fica embaixo, longe do texto da linha */
+#app.tp-lr #view-prompter.cam-full .pause-pill{top:auto;bottom:calc(16px + var(--safe-b))}
+#app.tp-lr #view-prompter.cam-full .snd-alert{max-height:calc(100vh - 64px - 60px - var(--safe-t) - var(--safe-b))}
+#app.tp-lr #view-prompter.cam-full.recording .snd-alert{top:calc(64px + var(--safe-t) + 50px);max-height:calc(100vh - 114px - 10px - var(--safe-t) - var(--safe-b))}
+/* aviso (toast): frente em pe, logo acima do texto da linha (o painel fica no alto); traseira deitada, fora da coluna do som */
+#app.tp-full.tp-fctl .toast{bottom:calc(100% - var(--guidey,75%) + var(--linebox,70px) * 1.5 + 12px)}
+#app.tp-lr.tp-full .toast{left:calc((100% - 236px - var(--safe-r)) / 2);max-width:calc(100% - 236px - 32px - var(--safe-r))}
+
+/* "Ver imagem": so a imagem; um aviso pequeno no alto some sozinho */
+.peek-hint{display:none}
+#view-prompter.peek :is(.stage,.p-top,.dock,.snd-alert,.rec-badge,.progress,.voice-flag){visibility:hidden}
+#view-prompter.peek .peek-hint{
+  display:block;position:absolute;left:50%;top:calc(16px + var(--safe-t));transform:translateX(-50%);z-index:6;
+  padding:8px 16px;border-radius:999px;background:rgba(0,0,0,.6);color:#fff;font-weight:700;font-size:14px;white-space:nowrap;
+  pointer-events:none;animation:peekhint 3.2s var(--ease-out) forwards;
+}
+@keyframes peekhint{0%,70%{opacity:1}100%{opacity:0}}
+
+/* folha dos filtros: pequena, por cima da imagem ao vivo (o roteiro e os controles saem da frente) */
+#view-prompter.fx-open :is(.stage,.p-top,.dock,.snd-alert,.rec-badge,.progress){visibility:hidden}
+#fx-sheet{background:none;pointer-events:none;z-index:22;align-items:flex-end;justify-content:center}
+#fx-sheet .fx-card{
+  pointer-events:auto;max-width:520px;max-height:min(62%,470px);touch-action:pan-y;
+  background:rgba(12,12,14,.86);border:1px solid rgba(255,255,255,.1);border-bottom:0;border-radius:22px 22px 0 0;
+}
+.fx-card .sheet-head{padding:8px 10px 8px 18px;gap:8px}
+.fx-card .sheet-head h2{flex:1}
+.btn.fx-before{min-height:44px;padding:0 16px;user-select:none;-webkit-user-select:none;touch-action:none}
+.fx-body{padding:4px 16px calc(14px + var(--safe-b))}
+.fx-presets{margin:8px 0 6px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.fx-presets .chip{padding:0 4px;min-height:44px;font-size:14px}
+.fx-row{display:grid;grid-template-columns:minmax(86px,auto) minmax(0,1fr) 38px;align-items:center;gap:10px;min-height:44px}
+.fx-name{font-weight:600;font-size:15px}
+.fx-val{text-align:right;font-variant-numeric:tabular-nums;color:var(--fg-dim);font-size:14px}
+.fx-row input[type=range]{width:100%;min-width:0;height:32px;margin:0;accent-color:var(--accent)}
+.fx-row input[type=range]:disabled{opacity:.4}
+.fx-note{margin:8px 0 0}
+.fx-box{margin:4px 0 8px}
+@media (orientation:landscape) and (max-height:560px){
+  #fx-sheet{align-items:stretch;justify-content:flex-end}
+  #fx-sheet .fx-card{max-width:400px;max-height:100%;border-radius:20px 0 0 20px;border-bottom:1px solid rgba(255,255,255,.1)}
+  #app.tp-lens-r #fx-sheet{justify-content:flex-start}
+  #app.tp-lens-r #fx-sheet .fx-card{border-radius:0 20px 20px 0}
+}
+
+/* Ajustes: regua (transparencia do fundo) */
+.range-row{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
+.range-row > span:first-child{font-weight:600;display:flex;flex-direction:column}
+.range-row small{color:var(--fg-dim);font-weight:400;font-size:13px}
+.range-ctl{display:flex;align-items:center;gap:12px}
+.range-ctl input{flex:1;min-width:0;height:32px;margin:0;accent-color:var(--accent)}
+.range-ctl output{min-width:48px;text-align:right;font-family:var(--font-display);font-weight:700;font-variant-numeric:tabular-nums}

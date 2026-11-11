@@ -51,6 +51,8 @@
   <symbol id="i-camera" viewBox="0 0 24 24"><path d="M9 4h6l1.6 2.2H20A2 2 0 0 1 22 8.2V18a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.2a2 2 0 0 1 2-2h3.4zm3 4.4a4.6 4.6 0 1 0 0 9.2 4.6 4.6 0 0 0 0-9.2zm0 2a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2z"/></symbol>
   <symbol id="i-film" viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5zm6 3.6v5.8c0 .5.5.8.9.5l4.6-2.9a.6.6 0 0 0 0-1l-4.6-2.9c-.4-.3-.9 0-.9.5z"/></symbol>
   <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="18.5" r="2"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M12 5.5c4.6 0 8.3 3 9.8 6.5-1.5 3.5-5.2 6.5-9.8 6.5S3.7 15.5 2.2 12C3.7 8.5 7.4 5.5 12 5.5zm0 2.2a4.3 4.3 0 1 0 0 8.6 4.3 4.3 0 0 0 0-8.6zm0 2.1a2.2 2.2 0 1 1 0 4.4 2.2 2.2 0 0 1 0-4.4z"/></symbol>
+  <symbol id="i-wand" viewBox="0 0 24 24"><path d="M14.6 7.9l1.5 1.5L5.6 19.9 4.1 18.4zM17 2.5l.8 2.1 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8zM20.5 9.5l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5zM10.5 2.8l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z"/></symbol>
 </svg>
 
 <div id="app">
@@ -148,6 +150,8 @@
   <section class="view" id="view-prompter" aria-label="Teleprompter">
     <!-- tudo dentro de #stage e espelhado junto: texto, linha, contagem e avisos -->
     <div class="stage" id="stage">
+      <!-- v10.0, tela cheia: faixa escura atras do texto em volta da linha de leitura (a imagem segue a vista no resto) -->
+      <div class="textband" id="textband" aria-hidden="true"></div>
       <div class="scroller" id="scroller"><div class="content" id="content"></div></div>
       <div class="readfade" id="readfade" aria-hidden="true"></div>
       <div class="guide" id="guide" aria-hidden="true">
@@ -162,7 +166,8 @@
     <div class="progress" aria-hidden="true"><i id="progress-bar"></i></div>
 
     <!-- gravacao: imagem da camera para enquadrar e selo de REC (fora do palco: nunca espelhados) -->
-    <div class="cam" id="cam" hidden><video id="cam-video" autoplay muted playsinline></video></div>
+    <!-- v10.0: com filtro ligado, o canvas (o mesmo que vai para o arquivo) fica por cima do video -->
+    <div class="cam" id="cam" hidden><video id="cam-video" autoplay muted playsinline></video><canvas id="cam-fx" width="2" height="2"></canvas></div>
     <div class="flipwarn" id="flipwarn" hidden role="dialog" aria-modal="true" aria-labelledby="flip-title">
       <div class="flip-art" aria-hidden="true"><svg class="ic"><use href="#i-selfie"></use></svg></div>
       <h2 class="flip-title" id="flip-title">Deixe o celular de cabeça para baixo</h2>
@@ -186,6 +191,18 @@
       <svg class="ic" aria-hidden="true"><use id="snd-icon" href="#i-mic"></use></svg>
       <div><b id="snd-title"></b><span class="snd-vu" aria-hidden="true"><i id="snd-vu"></i></span><span id="snd-sub"></span></div>
     </div>
+    <!-- v10.0: "Ver imagem" (so a imagem; qualquer toque ou pedal volta) e a folha dos filtros, por cima da imagem ao vivo -->
+    <div class="peek-hint" id="peek-hint" aria-live="polite">Toque na tela para voltar</div>
+    <div class="sheet fx-sheet" id="fx-sheet" hidden>
+      <div class="sheet-card fx-card" role="dialog" aria-modal="false" aria-labelledby="fx-title">
+        <header class="sheet-head">
+          <h2 id="fx-title">Filtros</h2>
+          <button class="btn fx-before" id="btn-fx-before" type="button" aria-label="Segure para ver sem filtro">Antes</button>
+          <button class="btn icon" id="btn-fx-close" type="button" aria-label="Fechar os filtros"><svg class="ic" aria-hidden="true"><use href="#i-close"></use></svg></button>
+        </header>
+        <div class="sheet-body fx-body" id="fx-ctl"></div>
+      </div>
+    </div>
 
     <!-- controles do operador (nao espelhados) -->
     <div class="p-top" id="p-top">
@@ -195,6 +212,9 @@
       <button class="btn icon glass rec-btn" id="pc-rec" type="button" aria-label="Gravar" aria-pressed="false" hidden><svg class="ic" aria-hidden="true"><use id="pc-rec-use" href="#i-rec"></use></svg></button>
       <button class="btn icon glass" id="pc-mirror" type="button" aria-label="Espelhar texto" aria-pressed="false"><svg class="ic" aria-hidden="true"><use href="#i-mirror"></use></svg></button>
       <button class="btn icon glass" id="pc-mic" type="button" aria-label="Comando de voz" aria-pressed="false"><svg class="ic" aria-hidden="true"><use href="#i-mic"></use></svg></button>
+      <!-- v10.0, tela cheia com o celular deitado: filtros e ver a imagem (em pe ficam no painel) -->
+      <button class="btn icon glass tool tool-top" id="pt-fx" type="button" aria-label="Filtros de imagem" hidden><svg class="ic" aria-hidden="true"><use href="#i-wand"></use></svg></button>
+      <button class="btn icon glass tool tool-top" id="pt-peek" type="button" aria-label="Ver a imagem sem o roteiro" hidden><svg class="ic" aria-hidden="true"><use href="#i-eye"></use></svg></button>
       <button class="btn icon glass" id="pc-settings" type="button" aria-label="Ajustes"><svg class="ic" aria-hidden="true"><use href="#i-gear"></use></svg></button>
     </div>
     <div class="voice-flag" id="voice-flag" hidden>Voz ativa</div>
@@ -210,10 +230,12 @@
         <button class="btn round step" id="pc-faster" type="button" aria-label="Mais rápido"><svg class="ic" aria-hidden="true"><use href="#i-plus"></use></svg></button>
       </div>
       <div class="transport" id="transport">
+        <button class="btn round tool tool-dock" id="pc-fx" type="button" aria-label="Filtros de imagem" hidden><svg class="ic" aria-hidden="true"><use href="#i-wand"></use></svg></button>
         <button class="btn round mid" id="pc-prev" type="button" aria-label="Voltar ao parágrafo anterior"><svg class="ic" aria-hidden="true"><use href="#i-prev"></use></svg></button>
         <button class="btn round play" id="pc-play" type="button" aria-label="Iniciar"><svg class="ic" aria-hidden="true"><use id="pc-play-use" href="#i-play"></use></svg></button>
         <button class="btn round mid" id="pc-next" type="button" aria-label="Avançar ao próximo parágrafo"><svg class="ic" aria-hidden="true"><use href="#i-next"></use></svg></button>
         <button class="btn round stop-btn" id="pc-stop" type="button" aria-label="Parar a gravação" hidden><svg class="ic" aria-hidden="true"><use href="#i-stop"></use></svg></button>
+        <button class="btn round tool tool-dock" id="pc-peek" type="button" aria-label="Ver a imagem sem o roteiro" hidden><svg class="ic" aria-hidden="true"><use href="#i-eye"></use></svg></button>
       </div>
       <div class="scrub" id="scrub" role="slider" tabindex="0" aria-label="Posição no roteiro" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <div class="scrub-track"><i id="scrub-fill"></i><div class="scrub-ticks" id="scrub-ticks"></div><b class="scrub-knob" id="scrub-knob"></b></div>
@@ -424,11 +446,14 @@
         <div class="field">
           <span class="field-label">Onde fica a imagem</span>
           <div class="chips" id="s-campos" role="radiogroup" aria-label="Onde fica a imagem da câmera">
+            <button class="chip" type="button" role="radio" data-cpos="full">Tela cheia</button>
             <button class="chip" type="button" role="radio" data-cpos="top">No alto</button>
             <button class="chip" type="button" role="radio" data-cpos="line">Acima da linha</button>
             <button class="chip" type="button" role="radio" data-cpos="corner">No canto</button>
           </div>
         </div>
+        <label class="range-row" id="s-uialpha-row"><span>Transparência do fundo<small>Atrás do texto e dos controles, na tela cheia. Para a direita, fundo mais escuro e leitura mais fácil; para a esquerda, mais imagem.</small></span>
+          <span class="range-ctl"><input type="range" id="s-uialpha" min="20" max="90" step="5" aria-label="Opacidade do fundo"><output id="s-uialpha-val">55%</output></span></label>
         <div class="field">
           <span class="field-label">Tela do celular ao gravar</span>
           <div class="chips" id="s-recscreen" role="radiogroup" aria-label="Tela do celular ao gravar">
@@ -457,6 +482,10 @@
         </div>
         <p class="hint" id="s-folder-hint"></p>
         <label class="switch"><span>Subir os vídeos para o Google Drive<small>Pasta “Gravações do Prompter”, uma por dia. O vídeo fica também no celular.</small></span><input type="checkbox" role="switch" id="s-drive"></label>
+
+        <h3 class="section-title">Imagem</h3>
+        <p class="hint">Filtros leves de luz, cor e pele. Valem no vídeo gravado, cada modo com os seus. Para ver o efeito ao vivo, toque na varinha da tela de leitura.</p>
+        <div class="fx-box" id="s-fx"></div>
 
         <h3 class="section-title">Espelho</h3>
         <label class="switch"><span>Espelhar na horizontal<small>Teleprompter com vidro (Parrot)</small></span><input type="checkbox" role="switch" id="s-mirror-h"></label>
