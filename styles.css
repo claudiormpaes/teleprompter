@@ -1017,3 +1017,40 @@ body{
 .range-ctl{display:flex;align-items:center;gap:12px}
 .range-ctl input{flex:1;min-width:0;height:32px;margin:0;accent-color:var(--accent)}
 .range-ctl output{min-width:48px;text-align:right;font-family:var(--font-display);font-weight:700;font-variant-numeric:tabular-nums}
+
+/* ---------- v10.1: trazer o roteiro pelo Compartilhar do Docs ----------
+   No celular a tela do Docs mostra um caminho so (passos curtos e um desenho simples); a escolha no
+   Google fica guardada em "O Prompter nao aparece na lista?". No PC (sem Compartilhar) so ela aparece. */
+.share-how{border:1px solid var(--line);border-radius:18px;background:var(--surface);padding:16px 16px 10px;margin:0 0 16px}
+.how-art{display:block;width:100%;max-width:300px;height:auto;margin:0 auto 6px}
+.how-art .ha-phone{fill:var(--surface-3);stroke:var(--line);stroke-width:2}
+.how-art .ha-line{fill:#4a86e8}
+.how-art .ha-cap{fill:var(--fg-dim);font:600 12px var(--font-ui)}
+.how-art .ha-arrow{fill:none;stroke:var(--accent);stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.how-art .ha-arrow.thin{stroke:var(--fg);stroke-width:2.5}
+.how-art .ha-box{fill:var(--surface-3);stroke:var(--line);stroke-width:2}
+.how-art .ha-dot{fill:var(--fg)}
+.how-art .ha-app{fill:#000;stroke:var(--accent);stroke-width:2.5}
+.how-art .ha-p{fill:var(--accent);font:700 26px var(--font-display)}
+.share-how .onboard-title{text-align:center;margin:4px 0 10px}
+.how-steps{margin:0 0 6px;padding-left:24px;display:flex;flex-direction:column;gap:10px;font-size:16px;line-height:1.4}
+.how-steps li::marker{color:var(--accent);font-weight:700}
+.how-steps b{color:var(--fg)}
+.how-sub{display:block;color:var(--fg-dim);font-size:14px}
+.docs-more{margin-top:4px}
+.docs-more > summary{
+  cursor:pointer;min-height:48px;display:flex;align-items:center;padding:6px 2px;
+  color:var(--fg-dim);font-size:15px;list-style:none;
+}
+.docs-more > summary::-webkit-details-marker{display:none}
+.docs-more > summary::before{content:"›";display:inline-block;margin-right:10px;font-size:20px;color:var(--accent);transition:transform .15s}
+.docs-more[open] > summary::before{transform:rotate(90deg)}
+.docs-more[open] > summary{margin-bottom:10px}
+/* PC: nao ha Compartilhar; a escolha no Google e a tela */
+#view-docs.docs-pc .docs-more > summary{display:none}
+/* com a escolha no Google aberta, o passo a passo vira uma linha (a lista fica perto do alto) */
+.how-short{display:none;margin:0;font-size:14px;line-height:1.4;color:var(--fg-dim)}
+.how-short b{color:var(--fg)}
+#view-docs:has(#docs-more[open]) .share-how{padding:10px 14px}
+#view-docs:has(#docs-more[open]) .share-how > :not(.how-short){display:none}
+#view-docs:has(#docs-more[open]) .how-short{display:block}

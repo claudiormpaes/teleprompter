@@ -135,6 +135,36 @@ arquivo, 10 vezes por segundo, desde que a câmera liga:
   - Teste: `tests/test-som-tela.js`. Em pé: 320×568, 360×640, 360×740 e 384×832. Deitado: 640×360 e
     832×384. Frente e traseira, parado e gravando, nos quatro estados, com caixas sem sobreposição.
 
+## Compartilhar com o Prompter e filtros de rosto (v10.1, 11/11/2026)
+
+Pedido do Cláudio: "Ainda tá muito ruim de encontrar os roteiros no google docs / drive, precisamos de uma
+solução melhor" e "Quero só uma solução, que não confunda o usuário".
+
+- **Um caminho só, no celular:** no app Docs, abrir o roteiro › ⋮ › Compartilhar e exportar › Enviar uma
+  cópia › Word (.docx) › Prompter. O roteiro abre pronto ("Como vai gravar?"). Mandado de novo com o mesmo
+  nome, atualiza o roteiro que já estava no app (`source.type: 'share'`).
+- **Como funciona:** o manifesto declara um `share_target` POST multipart em `./compartilhar` (título, texto,
+  link e o arquivo `arquivo`: .docx, texto, markdown ou PDF, só por tipo MIME). O service worker recebe o POST,
+  guarda tudo no cache `tp-share` e manda a página para `./?compartilhado=1`; a página lê e apaga (`Share`).
+- **.docx** é lido no próprio app, sem login e sem biblioteca de fora (`Docx`: ZIP + `DecompressionStream`).
+  Título e Títulos viram bloco (`#`), negrito vira `**ênfase**`, cada parágrafo e cada quebra de linha viram
+  parágrafo, texto apagado em revisão sai.
+- **Texto puro e .txt/.md:** viram roteiro. **Link de Google Docs:** a janela do Google abre só naquele
+  documento (Picker com `setFileIds`); sem conta no aparelho, a pessoa entra uma vez e a janela volta nele.
+  **PDF:** aviso para mandar como Word (ler PDF exigiria uma biblioteca grande).
+- **Tela do Docs:** no celular, só o passo a passo com um desenho; a escolha no Google de antes fica em "O
+  Prompter não aparece na lista? Escolha no Google" (fechado; aberto, o passo a passo vira uma linha). No PC,
+  onde não há Compartilhar, aparece só a escolha no Google.
+- O compartilhamento antigo por GET (`?share_text=`) continua funcionando para os aparelhos com o manifesto
+  velho.
+- **App Android 1.0.2** (código 3): intent filter de SEND/SEND_MULTIPLE para Word, texto, markdown e PDF
+  (Bubblewrap `shareTarget`), assinado com a chave 65:F9. Só funciona com esta versão do site publicada.
+- **Filtros de rosto:** "Luz no rosto" (clareia só a pele, com limite para não estourar) e "Tom uniforme" (a cor
+  da pele puxa para o tom médio da pele num anel largo em volta: disfarça vermelhidão e manchas), com a mesma
+  máscara de pele da Pele suave, no mesmo passe do shader. O pronto "Suave" ganhou um pouco dos dois.
+- Testes: `tests/test-compartilhar.js` (com um .docx de verdade montado no teste) e os casos novos em
+  `tests/test-filtros.js`.
+
 ## Imagem em tela cheia e filtros de imagem (v10.0, 11/11/2026)
 
 Pedido do Cláudio: "Vamos melhorar nosso app e deixar mais fácil o controle de qualidade da imagem.

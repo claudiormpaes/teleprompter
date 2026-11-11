@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v10.0';
+  var APP_VERSION = 'v10.1';
   var K_SCRIPTS = 'tp.scripts';
   var K_SETTINGS = 'tp.settings';
   var K_KEYS = 'tp.keys2';          // v6: deslizes passaram a ser medidos com o celular em pe
@@ -367,7 +367,7 @@
       if (Up.pending() && !Up.running) Up.run();     // video esperando login: a rodada termina renovando o login
     }
     if (name === 'pedal') Pedal.enter();
-    if (name === 'docs') GDocs.enter();
+    if (name === 'docs') { Share.paint(); GDocs.enter(); }
     if (Update.pending && name !== 'prompter') Update.offer();
   }
 
@@ -801,8 +801,10 @@
         if (pending.do === 'present' && pending.id && findScript(pending.id)) { Prompter.open(pending.id); return; }
         if (pending.do === 'upload') { show('library'); return; }
         show('docs');
-        // conta nova que escolhe pela janela do Google: abre a janela ja na volta
-        if (pending.do === 'choose' || (pending.add && GDocs.picks(GDocs.cur()))) GDocs.choose(GDocs.cur());
+        Share.more(true);                 // v10.1: a volta do Google cai na escolha no Google, aberta
+        // conta nova que escolhe pela janela do Google: abre a janela ja na volta (v10.1: no documento do link compartilhado)
+        if (pending.fileId) GDocs.choose(GDocs.cur(), pending.fileId);
+        else if (pending.do === 'choose' || (pending.add && GDocs.picks(GDocs.cur()))) GDocs.choose(GDocs.cur());
       };
       if (GDocs.ready) GDocs.ready.then(go, go); else go();
     },
@@ -996,7 +998,7 @@
     choose: function (acct, fileId, done, query) {
       acct = acct || GDocs.cur();
       if (!navigator.onLine) { Toast.show('Sem internet: o Google Drive precisa de conexão.'); return; }
-      if (!GDocs.token(acct)) { GDocs.login({ do: 'choose', acct: acct }); return; }
+      if (!GDocs.token(acct)) { GDocs.login({ do: 'choose', acct: acct, fileId: fileId || undefined }); return; }
       if (current === 'docs') $('#docs-status').textContent = 'Abrindo o Google Drive…';
       GDocs.loadPicker().then(function () {
         var P = window.google.picker;
@@ -1889,8 +1891,9 @@
 
   $('#btn-gdocs').addEventListener('click', function () { show('docs'); });
   $('#btn-docs-back').addEventListener('click', function () { show('library'); });
-  $('#btn-docs-login').addEventListener('click', function () { GDocs.login({ do: 'browse', add: true, client: 'int' }, true); });
-  $('#btn-docs-login-ext').addEventListener('click', function () { GDocs.login({ do: 'browse', add: true, client: 'ext' }, true); });
+  // v10.1: link de Docs compartilhado sem conta no aparelho: depois do login a janela abre nele (pendingFile)
+  $('#btn-docs-login').addEventListener('click', function () { GDocs.login({ do: 'browse', add: true, client: 'int', fileId: GDocs.pendingFile || undefined }, true); });
+  $('#btn-docs-login-ext').addEventListener('click', function () { GDocs.login({ do: 'browse', add: true, client: 'ext', fileId: GDocs.pendingFile || undefined }, true); });
   $('#btn-docs-cancel').addEventListener('click', function () { GDocs.adding = false; GDocs.enter(); });
   $('#btn-docs-relogin').addEventListener('click', function () { GDocs.login({ do: 'browse', acct: GDocs.cur() }, true); });
   $('#btn-docs-choose').addEventListener('click', function () {
@@ -2625,6 +2628,16 @@
         Rec.stream = stream;
         // o microfone caindo nao derruba a camera: o medidor de som avisa e pede o microfone de novo
         stream.getVideoTracks().forEach(function (t) { t.addEventListener('ended', Rec.lost); });
+        /* 11/11/2026: a camera da frente baixava sozinha para ~24 qps irregulares quando a luz caia (7 de 10 tomadas da
+           Robertha), e o video saia com quadros repetidos ("tremido"). Pede 30 qps no minimo; se o aparelho recusar,
+           segue como estava. Com pouca luz a imagem fica um pouco mais escura: preferir boa luz a perder a fluidez. */
+        stream.getVideoTracks().forEach(function (t) {
+          if (!t.applyConstraints || !t.getConstraints) return;
+          safe(function () {
+            var c = Object.assign({}, t.getConstraints(), { frameRate: { min: 30, ideal: 30 } });
+            return t.applyConstraints(c);
+          });
+        });
         Sound.attach(stream);
         var v = $('#cam-video');
         v.srcObject = stream;
@@ -3763,15 +3776,17 @@
      - A camera ociosa (nap) e sair do prompter param o laco (Rec.release -> Fx.stop).
      - Ajustes por modo (MODE_KEYS 'fx'): a frente e a traseira pedem ajustes diferentes. Faixas limitadas
        para ficar leve (nada de cara de plastico). */
-  var FX_KEYS = ['skin', 'light', 'contrast', 'sat', 'temp'];
-  var FX_RANGE = { skin: [0, 100], light: [-50, 50], contrast: [-50, 50], sat: [-50, 50], temp: [-50, 50] };
-  var FX_LABEL = { skin: 'Pele suave', light: 'Luz', contrast: 'Contraste', sat: 'Cor', temp: 'Temperatura' };
+  /* v10.1 (pedido do Claudio, "pode colocar"): "Luz no rosto" e "Tom uniforme", com a MESMA mascara de pele da
+     Pele suave (sem deteccao de rosto nem modelo novo) e no mesmo passe do shader. */
+  var FX_KEYS = ['skin', 'face', 'even', 'light', 'contrast', 'sat', 'temp'];
+  var FX_RANGE = { skin: [0, 100], face: [0, 100], even: [0, 100], light: [-50, 50], contrast: [-50, 50], sat: [-50, 50], temp: [-50, 50] };
+  var FX_LABEL = { skin: 'Pele suave', face: 'Luz no rosto', even: 'Tom uniforme', light: 'Luz', contrast: 'Contraste', sat: 'Cor', temp: 'Temperatura' };
   var FX_PRESETS = {
-    off: { skin: 0, light: 0, contrast: 0, sat: 0, temp: 0 },
+    off: { skin: 0, face: 0, even: 0, light: 0, contrast: 0, sat: 0, temp: 0 },
     // (multiplos de 5: o passo das reguas)
-    natural: { skin: 0, light: 10, contrast: 5, sat: 10, temp: 5 },     // um toque de luz e cor
-    soft: { skin: 50, light: 10, contrast: 0, sat: 5, temp: 0 },        // pele suave leve + luz
-    warm: { skin: 0, light: 5, contrast: 5, sat: 10, temp: 30 }         // mais quente
+    natural: { skin: 0, face: 0, even: 0, light: 10, contrast: 5, sat: 10, temp: 5 },      // um toque de luz e cor
+    soft: { skin: 50, face: 20, even: 20, light: 10, contrast: 0, sat: 5, temp: 0 },       // pele suave leve + luz (v10.1: um pouco de luz no rosto e tom uniforme)
+    warm: { skin: 0, face: 0, even: 0, light: 5, contrast: 5, sat: 10, temp: 30 }          // mais quente
   };
   var FX_NAME = { off: 'Desligado', natural: 'Natural', soft: 'Suave', warm: 'Quente' };
   function fxNorm(f) {
@@ -3786,8 +3801,8 @@
   var FX_VS = 'attribute vec2 p;varying vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}';
   var FX_FS = [
     '#ifdef GL_FRAGMENT_PRECISION_HIGH', 'precision highp float;', '#else', 'precision mediump float;', '#endif',
-    'varying vec2 uv;uniform sampler2D tex;uniform vec2 off[16];',
-    'uniform float skin,gam,con,sat,tmp;',
+    'varying vec2 uv;uniform sampler2D tex;uniform vec2 off[16];uniform vec2 offw[8];',
+    'uniform float skin,face,even,gam,con,sat,tmp;',
     // pele: Cb 77..127 e Cr 133..173 (em 0..255), com bordas suaves; nem muito escuro nem estourado
     'float skinMask(vec3 c){',
     ' float y=dot(c,vec3(.299,.587,.114));',
@@ -3796,11 +3811,18 @@
     '  *smoothstep(.1,.18,y)*(1.-smoothstep(.93,.99,y));}',
     'void main(){',
     ' vec3 c=texture2D(tex,uv).rgb;',
-    ' if(skin>0.){float m=skinMask(c);',
-    // desfoque que preserva bordas: 16 amostras em dois aneis, peso pela diferenca de cor
-    '  if(m>.02){vec3 s=c;float ws=1.;',
+    ' if(skin>0.||face>0.||even>0.){float m=skinMask(c);',
+    // 16 amostras em dois aneis: desfoque que preserva bordas (peso pela diferenca de cor) e a cor media da pele em volta
+    '  if(m>.02){vec3 s=c;float ws=1.;vec3 L=vec3(.299,.587,.114);',
     '   for(int i=0;i<16;i++){vec3 q=texture2D(tex,uv+off[i]).rgb;vec3 d=q-c;float w=exp(-dot(d,d)*90.);s+=q*w;ws+=w;}',
-    '   c=mix(c,s/ws,m*skin);}}',
+    '   c=mix(c,s/ws,m*skin);',
+    // tom uniforme: so a cor (a luz fica) puxa para o tom medio da pele num anel largo em volta (maior que uma
+    // mancha), contando so o que e pele; disfarca vermelhidao e manchas. So calcula com a regua ligada
+    '   if(even>0.){vec3 a=vec3(0.);float wa=.001;',
+    '    for(int i=0;i<8;i++){vec3 q=texture2D(tex,uv+offw[i]).rgb;float mq=skinMask(q);a+=q*mq;wa+=mq;}',
+    '    if(wa>.5){a/=wa;c+=((a-dot(a,L))-(c-dot(c,L)))*m*even;}}',
+    // luz no rosto: clareia so a pele, como luz suave de frente; o que ja e claro nao estoura
+    '   c+=(1.-c)*face*m*(1.-smoothstep(.7,.92,dot(c,L)));}}',
     ' c=pow(max(c,vec3(0.)),vec3(gam));',
     ' c=(c-.5)*con+.5;',
     ' float l=dot(c,vec3(.299,.587,.114));c=mix(vec3(l),c,sat);',
@@ -3891,7 +3913,7 @@
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
         gl.uniform1i(gl.getUniformLocation(prog, 'tex'), 0);
         Fx.U = {};
-        ['off', 'skin', 'gam', 'con', 'sat', 'tmp'].forEach(function (k) { Fx.U[k] = gl.getUniformLocation(prog, k); });
+        ['off', 'offw', 'skin', 'face', 'even', 'gam', 'con', 'sat', 'tmp'].forEach(function (k) { Fx.U[k] = gl.getUniformLocation(prog, k); });
         Fx.gl = gl; Fx.prog = prog; Fx.tex = tex;
         Fx.w = Fx.h = 0;
         return true;
@@ -3917,6 +3939,8 @@
       Fx.uFor = settings.fx; Fx.uW = Fx.w; Fx.uH = Fx.h; Fx.uGl = Fx.gl;
       var gl = Fx.gl, f = fxNorm(settings.fx), U = Fx.U;
       gl.uniform1f(U.skin, 0.7 * f.skin / 100);
+      gl.uniform1f(U.face, 0.22 * f.face / 100);         // no maximo ~22% do caminho ate o branco, so na pele
+      gl.uniform1f(U.even, 0.6 * f.even / 100);          // no maximo 60% do caminho ate o tom medio
       gl.uniform1f(U.gam, Math.pow(2, -0.45 * f.light / 50));
       gl.uniform1f(U.con, 1 + 0.3 * f.contrast / 50);
       gl.uniform1f(U.sat, 1 + 0.4 * f.sat / 50);
@@ -3927,6 +3951,9 @@
         o.push(Math.cos(a) * rr / Fx.w, Math.sin(a) * rr / Fx.h);
       }
       gl.uniform2fv(U.off, new Float32Array(o));
+      var ow = [];                                       // anel largo do Tom uniforme: 8 vezes o raio do desfoque
+      for (var j = 0; j < 8; j++) { var b = j * Math.PI / 4 + Math.PI / 8; ow.push(Math.cos(b) * r * 8 / Fx.w, Math.sin(b) * r * 8 / Fx.h); }
+      gl.uniform2fv(U.offw, new Float32Array(ow));
     },
 
     start: function () {
@@ -4093,7 +4120,7 @@
           if (Number(inp.value) !== v) inp.value = String(v);
           inp.disabled = rec;
           var o = inp.parentNode.querySelector('output');
-          if (o) o.textContent = (v > 0 && k !== 'skin' ? '+' : '') + v;
+          if (o) o.textContent = (v > 0 && FX_RANGE[k][0] < 0 ? '+' : '') + v;
         });
         root.querySelector('.fx-4k').hidden = !hd;
         root.querySelector('.fx-recnote').hidden = !rec;
@@ -5489,6 +5516,181 @@
   };
   Voice.init();
 
+  /* ============================ Compartilhar com o Prompter (v10.1) ============================
+     Pedido do Claudio (11/11): "Ainda ta muito ruim de encontrar os roteiros no google docs / drive" e
+     "Quero so uma solucao, que nao confunda o usuario". O caminho unico no celular: no app do Docs, abrir
+     o roteiro > Compartilhar e exportar > Enviar uma copia > Word (.docx) > Prompter. O roteiro abre pronto.
+     - O manifesto declara um share_target POST (multipart). O service worker recebe o POST em
+       ./compartilhar, guarda titulo, texto, link e arquivo no cache 'tp-share' e redireciona para
+       ./?compartilhado=1; aqui a pagina le e apaga (Share.take).
+     - .docx: lido no proprio app, sem login e sem biblioteca de fora (Docx.read: ZIP + DecompressionStream).
+     - .txt / .md / texto puro: vira roteiro como esta.
+     - Link de Google Docs: a janela do Google (Picker) abre so naquele documento (o caminho que ja existia);
+       sem conta conectada, pede o login uma vez e volta para ele.
+     - PDF: aviso dizendo para mandar como Word (ler texto de PDF exigiria uma biblioteca grande).
+     - O mesmo arquivo mandado de novo atualiza o roteiro que ja estava aqui (mesmo nome), sem duplicar. */
+  var Docx = {
+    W: 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+    // descompacta uma entrada do ZIP (guardada ou deflate) pelo proprio navegador
+    entry: function (buf, want) {
+      var dv = new DataView(buf), n = buf.byteLength, eocd = -1;
+      for (var i = n - 22; i >= Math.max(0, n - 65557); i--) { if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+      if (eocd < 0) return Promise.reject(new Error('zip'));
+      var count = dv.getUint16(eocd + 10, true), p = dv.getUint32(eocd + 16, true);
+      var dec = new TextDecoder('utf-8');
+      for (var k = 0; k < count && p + 46 <= n; k++) {
+        if (dv.getUint32(p, true) !== 0x02014b50) break;
+        var method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+        var nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
+        var local = dv.getUint32(p + 42, true);
+        var name = dec.decode(new Uint8Array(buf, p + 46, nlen));
+        p += 46 + nlen + xlen + clen;
+        if (name !== want) continue;
+        if (dv.getUint32(local, true) !== 0x04034b50) return Promise.reject(new Error('zip'));
+        var start = local + 30 + dv.getUint16(local + 26, true) + dv.getUint16(local + 28, true);
+        var data = new Uint8Array(buf, start, csize);
+        if (method === 0) return Promise.resolve(dec.decode(data));
+        if (method !== 8 || typeof DecompressionStream !== 'function') return Promise.reject(new Error('deflate'));
+        var ds = new DecompressionStream('deflate-raw');
+        return new Response(new Blob([data]).stream().pipeThrough(ds)).arrayBuffer().then(function (b) { return dec.decode(b); });
+      }
+      return Promise.reject(new Error('sem ' + want));
+    },
+    /* texto do roteiro: um paragrafo do Word = um paragrafo do teleprompter (como na importacao do Docs);
+       Titulo/Titulo 1-6 vira "# bloco"; negrito vira **enfase**; quebra de linha vira paragrafo. */
+    read: function (buf) {
+      return Docx.entry(buf, 'word/document.xml').then(function (xml) {
+        var doc = new DOMParser().parseFromString(xml, 'application/xml');
+        if (doc.getElementsByTagName('parsererror').length) throw new Error('xml');
+        var W = Docx.W, out = [];
+        var on = function (n) { if (!n) return false; var v = n.getAttributeNS(W, 'val') || n.getAttribute('w:val'); return !/^(0|false|none)$/i.test(v || ''); };
+        Array.prototype.forEach.call(doc.getElementsByTagNameNS(W, 'p'), function (p) {
+          var ppr = p.getElementsByTagNameNS(W, 'pPr')[0], st = ppr && ppr.getElementsByTagNameNS(W, 'pStyle')[0];
+          var style = st ? (st.getAttributeNS(W, 'val') || st.getAttribute('w:val') || '') : '';
+          var head = /^(title|heading\d|t[ií]?tulo\d?)$/i.test(style.replace(/[\s_-]/g, ''));
+          var segs = [];
+          Array.prototype.forEach.call(p.getElementsByTagNameNS(W, 'r'), function (r) {
+            if (r.parentNode && r.parentNode.localName === 'del') return;               // texto apagado em revisao
+            var rpr = r.getElementsByTagNameNS(W, 'rPr')[0], b = !!(rpr && on(rpr.getElementsByTagNameNS(W, 'b')[0]));
+            Array.prototype.forEach.call(r.childNodes, function (c) {
+              if (c.namespaceURI !== W) return;
+              var t = c.localName === 't' ? c.textContent : c.localName === 'tab' ? ' ' : (c.localName === 'br' || c.localName === 'cr') ? '\n' : '';
+              if (!t) return;
+              var last = segs[segs.length - 1];
+              if (last && last.b === b) last.t += t; else segs.push({ t: t, b: b });
+            });
+          });
+          var line = segs.map(function (s) {
+            if (!s.b || head || !s.t.trim()) return s.t;
+            var m = /^(\s*)([\s\S]*?)(\s*)$/.exec(s.t);
+            return m[1] + m[2].split('\n').map(function (x) { return x.trim() ? '**' + x + '**' : x; }).join('\n') + m[3];
+          }).join('').replace(/[ \t]+$/gm, '');
+          if (!line.trim()) return;
+          out.push(head ? '# ' + line.replace(/\s+/g, ' ').trim() : line);
+        });
+        return Script.linesToParas(out.join('\n'));
+      });
+    }
+  };
+
+  var Share = {
+    CACHE: 'tp-share',
+    DOCX: /\.docx$|wordprocessingml\.document/i,
+    // so o celular tem "Compartilhar" (Android): no PC a tela do Docs mostra a escolha no Google
+    phone: function () { return /Android/i.test(navigator.userAgent || ''); },
+    url: function (k) { return new URL('__compartilhado/' + k, location.href.split(/[?#]/)[0]).href; },
+    // a pagina abriu por um compartilhamento: le o que o service worker guardou e apaga
+    take: function () {
+      if (!/[?&]compartilhado=1/.test(location.search)) return Promise.resolve(null);
+      try { history.replaceState(null, '', location.pathname); } catch (e) { /* sem historico */ }
+      if (!window.caches) return Promise.resolve(null);
+      return caches.open(Share.CACHE).then(function (c) {
+        return c.match(Share.url('meta')).then(function (r) { return r ? r.json() : null; }).then(function (meta) {
+          if (!meta) return null;
+          var file = meta.file ? c.match(Share.url('arquivo')).then(function (r) { return r ? r.blob() : null; }) : Promise.resolve(null);
+          return file.then(function (blob) {
+            meta.blob = blob;
+            return Promise.all([c.delete(Share.url('meta')), c.delete(Share.url('arquivo'))]).then(function () { return meta; });
+          });
+        });
+      }).catch(function () { return null; });
+    },
+    receive: function (d) {
+      if (!d) return Promise.resolve();
+      var f = d.file, name = f && f.name || '', type = f && f.type || '';
+      var nl = function (x) { return String(x || '').replace(/\r\n?/g, '\n').trim(); };
+      var title = nl(d.title), text = nl(d.text), link = nl(d.url);
+      if (f && d.blob) {
+        var base = name.replace(/\.[^.]+$/, '').trim() || title || 'Roteiro compartilhado';
+        if (Share.DOCX.test(name) || Share.DOCX.test(type)) {
+          return d.blob.arrayBuffer().then(Docx.read).then(function (t) { Share.ready(base, t, 'docx'); }, function () {
+            Toast.show('Não consegui ler esse arquivo do Word. No Docs, use Enviar uma cópia > Word (.docx) de novo.', null, null, 9000);
+          });
+        }
+        if (/\.pdf$/i.test(name) || /pdf/i.test(type)) {
+          show('docs');
+          Toast.show('Chegou um PDF, e o app não lê PDF. No Docs: Enviar uma cópia > escolha Word (.docx) > Prompter.', null, null, 12000);
+          return Promise.resolve();
+        }
+        if (/^text\//i.test(type) || /\.(txt|md|markdown)$/i.test(name)) {
+          return d.blob.text().then(function (t) { Share.ready(base, /\.(md|markdown)$/i.test(name) ? Script.fromDoc(t, true) : Script.linesToParas(t.replace(/\r\n?/g, '\n')), 'texto'); });
+        }
+        Toast.show('Esse tipo de arquivo o app não lê. No Docs: Enviar uma cópia > Word (.docx) > Prompter.', null, null, 9000);
+        return Promise.resolve();
+      }
+      // link de um Google Docs: a janela do Google abre so nele
+      var id = GDocs.linkId(link) || GDocs.linkId(text);
+      if (id) { Share.docLink(id, link + ' ' + text); return Promise.resolve(); }
+      if (link && text.indexOf(link) === -1) text = text ? text + '\n\n' + link : link;
+      if (!text) { Toast.show('Não chegou nenhum texto.'); return Promise.resolve(); }
+      Share.ready(title || text.split('\n')[0].slice(0, 60) || 'Roteiro compartilhado', Script.linesToParas(text), 'texto');
+      return Promise.resolve();
+    },
+    // roteiro pronto: o mesmo nome mandado de novo atualiza o que ja estava aqui; abre a escolha do modo
+    ready: function (title, text, kind) {
+      if (!String(text || '').trim()) { Toast.show('O arquivo chegou vazio: não achei texto nele.', null, null, 8000); return; }
+      var s = null;
+      for (var i = 0; i < scripts.length; i++) if (scripts[i].source && scripts[i].source.type === 'share' && scripts[i].title === title) { s = scripts[i]; break; }
+      var again = !!s;
+      if (s) { s.text = text; s.updated = now(); s.source.at = now(); }
+      else {
+        s = { id: newId(), title: title, text: text, created: now(), updated: now(), source: { type: 'share', kind: kind, at: now() } };
+        scripts.push(s);
+      }
+      saveScripts();
+      Storage.persist();
+      show('library');
+      Modes.pick(s.id);
+      Toast.show((again ? 'Roteiro atualizado: “' : 'Roteiro pronto: “') + title + '”.');
+    },
+    docLink: function (id, raw) {
+      // link de um arquivo do Word aberto no Google Docs: a janela do Google so mostra Google Docs
+      if (/[?&]rtpof=true/.test(raw || '')) { Toast.show('Esse link é de um arquivo do Word. No Docs: Enviar uma cópia > Word (.docx) > Prompter.', null, null, 10000); return; }
+      show('docs');
+      Share.more(true);
+      var acct = GDocs.cur();
+      if (acct) { GDocs.choose(acct, id); return; }
+      // nenhuma conta neste aparelho: a pessoa entra uma vez e a janela volta ja no documento
+      GDocs.pendingFile = id;
+      $('#docs-status').textContent = '';
+      Toast.show('Para trazer pelo link, entre com a conta Google onde está o roteiro.', null, null, 9000);
+    },
+    // o caminho de reserva (escolher no Google) dentro do "Não aparece o Prompter?"; aberto fica lembrado
+    more: function (open) {
+      var d = $('#docs-more');
+      if (open && !d.open) d.open = true;
+      Store.write('tp.docsMore', !!d.open);
+    },
+    paint: function () {
+      var ph = Share.phone(), d = $('#docs-more');
+      VIEWS.docs.classList.toggle('docs-pc', !ph);
+      $('#docs-how').hidden = !ph;
+      if (!ph) d.open = true;
+      else if (Store.read('tp.docsMore', false)) d.open = true;
+    }
+  };
+  $('#docs-more').addEventListener('toggle', function () { if (Share.phone()) Store.write('tp.docsMore', this.open); });
+
   /* ============================ Atualizacao do app ============================ */
 
   var Update = {
@@ -5526,6 +5728,9 @@
     Toast.show('Roteiro criado a partir do texto compartilhado.');
   })();
 
+  // v10.1: roteiro que chegou pelo Compartilhar do Android (o service worker guardou; ver Share)
+  Share.take().then(Share.receive).catch(function () { Toast.show('Não consegui abrir o que foi compartilhado. Tente de novo.'); });
+
   // primeiro uso: convite para ensinar o pedal ao app
   var K_ONBOARD = 'tp.pedalSetupSeen';
   function onboardPaint() { $('#onboard').hidden = !!Store.read(K_ONBOARD, false); }
@@ -5549,5 +5754,5 @@
   }
 
   // gancho para teste automatizado (nao afeta o uso)
-  window.__tp = { Fx: Fx, FxUI: FxUI, FxSheet: FxSheet, Peek: Peek, Lay: Lay, SndSpot: SndSpot, Toast: Toast, Prompter: Prompter, Rec: Rec, Up: Up, UpLeave: UpLeave, Guard: Guard, Modes: Modes, Flip: Flip, Folder: Folder, SaveAsk: SaveAsk, Player: Player, Input: Input, Voice: Voice, GDocs: GDocs, Sound: Sound, Gestures: Gestures, settings: settings, keymap: function () { return keymap; }, toNatural: toNatural, swipeToken: swipeToken, Script: Script };
+  window.__tp = { Share: Share, Docx: Docx, Fx: Fx, FxUI: FxUI, FxSheet: FxSheet, Peek: Peek, Lay: Lay, SndSpot: SndSpot, Toast: Toast, Prompter: Prompter, Rec: Rec, Up: Up, UpLeave: UpLeave, Guard: Guard, Modes: Modes, Flip: Flip, Folder: Folder, SaveAsk: SaveAsk, Player: Player, Input: Input, Voice: Voice, GDocs: GDocs, Sound: Sound, Gestures: Gestures, settings: settings, keymap: function () { return keymap; }, toNatural: toNatural, swipeToken: swipeToken, Script: Script };
 })();

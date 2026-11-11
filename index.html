@@ -254,6 +254,32 @@
       </div>
     </header>
     <div class="scrollarea">
+      <!-- v10.1: no celular, um caminho so: Compartilhar do app do Docs para o Prompter -->
+      <div class="share-how" id="docs-how">
+        <svg class="how-art" viewBox="0 0 280 120" aria-hidden="true">
+          <rect x="14" y="10" width="62" height="100" rx="10" class="ha-phone"/>
+          <rect x="24" y="24" width="42" height="6" rx="3" class="ha-line"/><rect x="24" y="36" width="34" height="6" rx="3" class="ha-line"/><rect x="24" y="48" width="40" height="6" rx="3" class="ha-line"/>
+          <text x="45" y="96" text-anchor="middle" class="ha-cap">Docs</text>
+          <path d="M88 60h36m-10-9 10 9-10 9" class="ha-arrow"/>
+          <rect x="132" y="30" width="60" height="60" rx="14" class="ha-box"/>
+          <circle cx="152" cy="60" r="5" class="ha-dot"/><circle cx="172" cy="48" r="5" class="ha-dot"/><circle cx="172" cy="72" r="5" class="ha-dot"/>
+          <path d="M156 58l12-7m-12 11 12 7" class="ha-arrow thin"/>
+          <path d="M200 60h22m-8-8 8 8-8 8" class="ha-arrow"/>
+          <rect x="228" y="34" width="44" height="52" rx="12" class="ha-app"/>
+          <text x="250" y="66" text-anchor="middle" class="ha-p">P</text>
+        </svg>
+        <p class="onboard-title">Traga o roteiro direto do Google Docs</p>
+        <ol class="how-steps">
+          <li>No app <b>Docs</b>, abra o roteiro. <span class="how-sub">No Drive, toque no roteiro: ele abre no Docs.</span></li>
+          <li>Toque em <b>⋮</b> › <b>Compartilhar e exportar</b> › <b>Enviar uma cópia</b>.</li>
+          <li>Escolha <b>Word (.docx)</b> e toque em <b>OK</b>.</li>
+          <li>Na lista de apps, toque em <b>Prompter</b>. O roteiro abre pronto.</li>
+        </ol>
+        <p class="hint small">Mudou o roteiro no Docs? Mande de novo do mesmo jeito: o app atualiza o que já estava aqui.</p>
+        <p class="how-short">O jeito mais fácil: no Docs, <b>⋮</b> › <b>Compartilhar e exportar</b> › <b>Enviar uma cópia</b> › <b>Word</b> › <b>Prompter</b>.</p>
+      </div>
+      <details class="docs-more" id="docs-more">
+        <summary>O Prompter não aparece na lista? Escolha no Google</summary>
       <div class="docs-connect" id="docs-connect" hidden>
         <div class="onboard-art" aria-hidden="true"><svg class="ic"><use href="#i-gdoc"></use></svg></div>
         <p class="onboard-title">Traga os roteiros do Google Docs</p>
@@ -277,6 +303,7 @@
         <ul class="list" id="docs-list" aria-label="Documentos do Google Docs"></ul>
         <p class="foot">Documentos de <span id="docs-who">sua conta Google</span>. <button class="linkbtn" id="btn-docs-logout" type="button">Desconectar esta conta</button></p>
       </div>
+      </details>
     </div>
     <div class="overlay" id="tab-picker" hidden role="dialog" aria-modal="true" aria-labelledby="tab-title">
       <div class="wiz-box tab-box">
