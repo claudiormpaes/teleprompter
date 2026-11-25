@@ -130,7 +130,24 @@ body{
 .up-status.all-done .up-bar i{background:var(--ok)}
 .up-list{list-style:none;margin:4px 0 0;padding:0}
 .up-list li{position:relative;display:flex;flex-direction:column;gap:1px;padding:7px 0 8px;border-top:1px solid var(--line)}
-.up-name{color:var(--fg);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.up-name{flex:1;min-width:0;color:var(--fg);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.up-row{display:flex;align-items:center;gap:8px}
+.up-rm{flex:0 0 auto;min-height:36px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--fg-dim);font:inherit;font-size:12px;cursor:pointer}
+.up-list li.bad .up-st{color:var(--danger)}
+.up-list{max-height:46vh;overflow-y:auto}
+.up-space{margin:8px 0 0;font-size:13px;color:var(--fg)}
+.up-space[hidden]{display:none}
+.up-space.warn{padding:8px 10px;border:1px solid var(--danger);border-radius:10px;color:var(--danger)}
+.up-link{display:inline-block;margin-top:6px;font-size:13px;color:var(--accent)}
+.up-link[hidden]{display:none}
+.up-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 0}
+.up-actions .btn[hidden]{display:none}
+.lost-bar{display:flex;align-items:center;gap:10px;margin:0 0 14px;padding:12px 14px;border:2px solid var(--danger);border-radius:14px;background:var(--surface);color:var(--danger)}
+.lost-bar[hidden]{display:none}
+.lost-bar b{flex:1;font-weight:700}
+.lost-box .wiz-title{color:var(--danger)}
+.lost-sub{color:var(--danger);font-weight:700}
+.danger-btn{border-color:var(--danger);color:var(--danger)}
 .up-st{font-size:12px}
 .up-mini{position:absolute;left:0;bottom:0;height:2px;width:0;background:var(--accent)}
 .up-keep{margin:8px 0 0;font-size:13px;color:var(--fg)}
@@ -1054,3 +1071,4 @@ body{
 #view-docs:has(#docs-more[open]) .share-how{padding:10px 14px}
 #view-docs:has(#docs-more[open]) .share-how > :not(.how-short){display:none}
 #view-docs:has(#docs-more[open]) .how-short{display:block}
+.btn[hidden]{display:none}

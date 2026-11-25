@@ -364,6 +364,9 @@
     if (name === 'library') {
       Library.render();
       Up.paint(true);
+      Lost.paint();
+      Space.estimate();
+      Up.migrate();
       if (Up.pending() && !Up.running) Up.run();     // video esperando login: a rodada termina renovando o login
     }
     if (name === 'pedal') Pedal.enter();
@@ -1309,6 +1312,14 @@
     retryTimer: 0,
     autoTimer: 0,
     lock: null,
+    stuck: {},                 // v10.2: id -> { kind: 'lost' | 'perm' }: erro que nao se resolve repetindo; nao entra em loop
+    halt: false,               // v10.2: Drive cheio: nao repete ate a pessoa tocar em "Tentar agora" (ou abrir o app de novo)
+    tries: 0,                  // v10.2: rodadas seguidas com erro passageiro (espera crescente)
+    nextAt: 0,                 // quando a proxima tentativa automatica acontece
+    why: '',                   // 'rate' | 'g5xx' | 'net': motivo do erro passageiro
+    whyStatus: 0,
+    roundBytes: 0,
+    moved: 0,                  // bytes liberados pela migracao (cópia na fila -> atalho da pasta)
 
     db: function () {
       if (Up.dbp) return Up.dbp;
@@ -1358,15 +1369,17 @@
         return l;
       });
     },
-    meta: function (r) { return { id: r.id, name: r.name, size: r.size, day: r.day, created: r.created, session: !!r.session, checked: !!r.checked }; },
+    meta: function (r) { return { id: r.id, name: r.name, size: r.size, day: r.day, created: r.created, session: !!r.session, checked: !!r.checked, hasBlob: !!r.blob, hasFh: !!r.fh }; },
     index: function (id) { for (var i = 0; i < Up.items.length; i++) if (Up.items[i].id === id) return i; return -1; },
     remember: function (rec) {
       var m = Up.meta(rec), i = Up.index(rec.id);
       if (i < 0) Up.items.push(m); else Up.items[i] = m;
     },
+    // o que vai para o disco: sem o campo "src" (arquivo lido na hora do envio, nunca guardado)
+    stored: function (rec) { var c = Object.assign({}, rec); delete c.src; return c; },
     put: function (rec) {
       return Up.tx('readwrite', function (fs, ms) {
-        fs.put(rec);
+        fs.put(Up.stored(rec));
         ms.put({ id: rec.id, session: rec.session || null, checked: !!rec.checked });
       }).then(function () { Up.remember(rec); });
     },
@@ -1394,16 +1407,29 @@
     needsLogin: function () { return Up.pending() > 0 && !GDocs.canWrite() && Up.items.some(function (r) { return !r.session || !r.checked; }); },
 
     // day: 'AAAA MM DD', o dia da gravacao (vira o nome da pasta)
-    add: function (blob, name, day) {
-      var rec = { id: newId(), name: name, day: day, size: blob.size, type: blob.type || 'video/mp4', blob: blob, created: now(), session: null, checked: false };
+    /* v10.2: com o atalho (FileSystemFileHandle) do arquivo ja gravado na pasta PROMPTER, a fila guarda so o
+       atalho e le o arquivo na hora de enviar: o video ocupa o celular uma vez so. Sem atalho (Download,
+       aparelhos da Robertha, navegador sem a API), guarda a copia, como antes.
+       Devolve true (entrou na fila), false (nao coube: disco cheio ou sem IndexedDB). Quem chama decide o aviso. */
+    add: function (blob, name, day, opt) {
+      var fh = opt && opt.fh && typeof opt.fh.getFile === 'function' ? opt.fh : null;
+      var base = { id: newId(), name: name, day: day, size: blob.size, type: blob.type || 'video/mp4', created: now(), session: null, checked: false };
+      var store = function (useFh) {
+        var rec = Object.assign({}, base);
+        if (useFh) rec.fh = fh; else rec.blob = blob;
+        return Up.put(rec);
+      };
       Up.adding++;
-      return Up.put(rec).then(function () {
+      return (fh ? store(true).catch(function () { return store(false); }) : store(false)).then(function () {
         Up.adding--;
         Up.paint(true);
         Up.run();
-      }, function () {
+        return true;
+      }, function (e) {
         Up.adding--;
-        Toast.show('Não consegui pôr o vídeo na fila do Drive. Ele ficou salvo no celular.');
+        if (Space.diskErr(e)) Space.noteFail();
+        Up.paint(true);
+        return false;
       });
     },
     /* "Nao, so no celular" (v9.5): a fila do Drive e copia repetida. Rec.save sempre guarda o video no
@@ -1421,9 +1447,11 @@
     run: function () {
       clearTimeout(Up.retryTimer);
       Up.retryTimer = 0;
+      Up.nextAt = 0;
       if (!settings.driveUpload) { Up.paint(true); return; }
       if (!navigator.onLine) { Up.note = 'offline'; Up.paint(true); return; }
-      if (!Up.running) { Up.running = true; Up.note = ''; Up.errs = []; Up.failed = {}; }
+      if (Up.halt) { Up.paint(true); return; }          // Drive cheio: so volta quando a pessoa pedir
+      if (!Up.running) { Up.running = true; Up.note = ''; Up.why = ''; Up.errs = []; Up.failed = {}; Up.roundBytes = Up.bytes; }
       Up.wake();
       Up.prepareAll();
       Up.spawn();
@@ -1438,7 +1466,7 @@
     pick: function (list) {
       for (var i = 0; i < list.length; i++) {
         var r = list[i];
-        if (!Up.busy[r.id] && !Up.failed[r.id] && Up.ready(r)) return r;
+        if (!Up.busy[r.id] && !Up.failed[r.id] && !Up.stuck[r.id] && Up.ready(r)) return r;
       }
       return null;
     },
@@ -1450,19 +1478,63 @@
     },
     workerDone: function () { Up.workers--; Up.check(); },
     check: function () { if (Up.running && !Up.workers && !Up.preparing) Up.settle(); },
+    /* v10.2: o motivo do erro vira texto (ver Up.say). Erro que repetir nao resolve (Drive cheio, copia
+       perdida, pasta sem licenca) nao entra em loop; erro passageiro (limite de taxa, 5xx do Google, rede)
+       repete com espera crescente: 30 s, 1, 2 e 5 min (o teto), e volta a 30 s quando algo avanca. */
+    kindOf: function (e) {
+      if (!e) return 'net';
+      if (e.auth) return 'auth';
+      if (e.drive === 'full') return 'full';
+      if (e.rate) return 'rate';
+      if (e.lost) return 'lost';
+      if (e.perm) return 'perm';
+      if (e.gone) return 'gone';
+      if (typeof e.status === 'number' && e.status >= 500) return 'g5xx';
+      return 'net';
+    },
+    backoff: function () {
+      var step = [1, 2, 4, 10][Math.min(Up.tries, 3)];
+      return Up.RETRY * step;
+    },
     settle: function () {
       Up.running = false;
       var errs = Up.errs;
       Up.errs = [];
       Up.failed = {};
       Up.samples = [];
-      var auth = errs.some(function (e) { return e && e.auth; });
-      var net = errs.some(function (e) { return !(e && e.auth); });
-      if (net && Up.pending()) Up.retryTimer = setTimeout(Up.run, Up.RETRY);    // rede caiu: tenta de novo sozinho
-      Up.note = (auth || Up.needsLogin()) && Up.pending() ? 'login' : net && Up.pending() ? 'erro' : '';
+      var kinds = errs.map(Up.kindOf);
+      var has = function (k) { return kinds.indexOf(k) >= 0; };
+      var auth = has('auth'), full = has('full');
+      var transient = ['rate', 'g5xx', 'net'].filter(has);
+      if (Up.bytes > Up.roundBytes) Up.tries = 0;           // algo avancou nesta rodada
+      if (full) Up.halt = true;
+      var pend = Up.pending() > 0;
+      if (transient.length && pend && !full) {
+        Up.why = has('net') ? 'net' : has('g5xx') ? 'g5xx' : 'rate';
+        errs.forEach(function (e) { if (e && typeof e.status === 'number') Up.whyStatus = e.status; });
+        var d = Up.backoff();
+        Up.tries++;
+        Up.nextAt = now() + d;
+        Up.retryTimer = setTimeout(Up.run, d);              // tenta de novo sozinho, esperando mais a cada vez
+      } else Up.why = '';
+      var stuckN = Object.keys(Up.stuck).length;
+      Up.note = !pend ? '' : (auth || Up.needsLogin()) ? 'login' : full ? 'cheio' : transient.length ? 'erro'
+        : Up.needFolder() ? 'pasta' : stuckN ? 'parado' : '';
       if (!Up.retryTimer) Up.unwake();
       Up.paint(true);
       if (Up.note === 'login') Up.autoLogin();
+    },
+    // "Tentar agora": zera as esperas e os erros parados e roda de novo
+    retryNow: function () {
+      clearTimeout(Up.retryTimer);
+      Up.retryTimer = 0;
+      Up.halt = false;
+      Up.stuck = {};
+      Up.tries = 0;
+      Up.why = '';
+      if (Up.note !== 'login') Up.note = '';
+      Up.migrate();
+      Up.run();
     },
 
     // com o login valido, abre a sessao de envio de todos os videos da fila, sem mandar bytes:
@@ -1477,7 +1549,7 @@
           var rec = null;
           for (var i = 0; i < list.length; i++) {
             var r = list[i];
-            if ((!r.session || !r.checked) && !Up.busy[r.id] && !Up.failed[r.id]) { rec = r; break; }
+            if ((!r.session || !r.checked) && !Up.busy[r.id] && !Up.failed[r.id] && !Up.stuck[r.id]) { rec = r; break; }
           }
           if (!rec) return null;
           Up.busy[rec.id] = 'prep';
@@ -1495,6 +1567,7 @@
             delete Up.busy[rec.id];
             Up.failed[rec.id] = true;
             Up.errs.push(e || {});
+            Up.problem(rec, e);
           });
         });
       };
@@ -1511,17 +1584,189 @@
       Up.paint(true);
       return Up.dedup(rec).then(function (found) {
         if (found) return Up.finish(rec, 'drive');
-        var start = rec.session
-          ? Up.status(rec).then(function (from) { return from < 0 ? Up.open(rec) : from; })
-          : Up.open(rec);
-        return start.then(function (from) { return Up.chunks(rec, from); })
-          .then(function () { return Up.finish(rec, 'app'); });
+        return Up.read(rec).then(function () {
+          var start = rec.session
+            ? Up.status(rec).then(function (from) { return from < 0 ? Up.open(rec) : from; })
+            : Up.open(rec);
+          return start.then(function (from) { return Up.chunks(rec, from); })
+            .then(function () { return Up.finish(rec, 'app'); });
+        });
       }).then(function () {
         delete Up.busy[rec.id];
       }, function (e) {
         delete Up.busy[rec.id];
+        delete rec.src;
         Up.failed[rec.id] = true;
+        Up.problem(rec, e);
         throw e;
+      });
+    },
+
+    /* ---- de onde vem os bytes (v10.2) ----
+       rec.src: o File da pasta PROMPTER (lido pelo atalho guardado) ou o Blob da fila. Antes de subir,
+       confere que da para ler. Erros com nome: { perm } (a pasta pede licenca, so com um toque),
+       { gone } (arquivo apagado da galeria), { lost } (copia ilegivel e nenhum arquivo igual na pasta). */
+    slurp: function (b) {
+      if (b.arrayBuffer) return b.arrayBuffer();
+      return new Promise(function (res, rej) {
+        var f = new FileReader();
+        f.onload = function () { res(f.result); };
+        f.onerror = function () { rej(f.error); };
+        f.readAsArrayBuffer(b);
+      });
+    },
+    // le o comeco e o fim: copia de IndexedDB sem o arquivo de blob falha aqui, nao no meio do envio
+    probe: function (b) {
+      if (!b || !b.size) return Promise.reject({ name: 'NotReadableError' });
+      var head = Up.slurp(b.slice(0, Math.min(b.size, 4096)));
+      return head.then(function () { return b.size > 8192 ? Up.slurp(b.slice(b.size - 4096)) : null; });
+    },
+    permErr: function (e) { return !!e && (e.perm || e.name === 'NotAllowedError' || e.name === 'SecurityError'); },
+    // acha na pasta PROMPTER um arquivo com este nome e tamanho
+    find: function (rec) {
+      if (!Folder.active()) return Promise.reject({ nofolder: true });
+      var dir = Folder.handle;
+      return Folder.check().then(function (p) {
+        if (p !== 'granted') throw { perm: true };
+        return dir.getFileHandle(rec.name);
+      }).then(function (fh) {
+        return fh.getFile().then(function (f) {
+          if (f.size !== rec.size) throw { nomatch: true };
+          return { fh: fh, file: f };
+        });
+      }).catch(function (e) {
+        if (e && (e.perm || e.nofolder || e.nomatch)) throw e;
+        if (Up.permErr(e)) throw { perm: true };
+        if (e && e.name === 'NotFoundError') throw { nomatch: true };
+        throw { nomatch: true, other: true };
+      });
+    },
+    // troca a copia da fila pelo atalho do arquivo igual na pasta PROMPTER (libera o espaco da copia)
+    swap: function (rec, fh) {
+      var n = Object.assign({}, rec, { fh: fh });
+      delete n.blob;
+      delete n.src;
+      return Up.put(n).then(function () { return n; });
+    },
+    read: function (rec) {
+      if (rec.src) return Promise.resolve(rec.src);
+      var done = function (src) {
+        rec.src = src;
+        if (src.size === rec.size) return src;
+        // o arquivo da pasta mudou de tamanho (editado na galeria): sobe o que esta la agora, do zero
+        if (!rec.fh || !src.size) throw { lost: true };
+        rec.size = src.size;
+        rec.session = null;
+        rec.checked = false;
+        return Up.put(rec).then(function () { return src; });
+      };
+      if (rec.blob) {
+        return Up.probe(rec.blob).then(function () { return done(rec.blob); }, function () {
+          // copia ilegivel: tenta religar pelo arquivo igual da pasta PROMPTER
+          return Up.find(rec).then(function (m) {
+            return Up.swap(rec, m.fh).then(function (n) {
+              rec.fh = n.fh;
+              delete rec.blob;
+              return Up.probe(m.file).then(function () { return done(m.file); });
+            });
+          }).catch(function (e) { throw e && e.perm ? e : { lost: true }; });
+        });
+      }
+      if (!rec.fh) return Promise.reject({ lost: true });
+      return Up.fromHandle(rec).then(function (f) {
+        return Up.probe(f).then(function () { return done(f); }, function () { throw { lost: true }; });
+      });
+    },
+    fromHandle: function (rec) {
+      var viaFolder = function () {
+        return Up.find(rec).then(function (m) { rec.fh = m.fh; Up.put(rec).catch(function () { }); return m.file; }).catch(function (e) {
+          if (e && e.perm) throw e;
+          if (e && e.nomatch && !e.other) throw { gone: true };
+          throw { lost: true };
+        });
+      };
+      var h = rec.fh;
+      var q = h.queryPermission ? Promise.resolve(h.queryPermission({ mode: 'read' })) : Promise.resolve('granted');
+      return q.then(function (p) {
+        if (p !== 'granted') throw { perm: true };
+        return h.getFile();
+      }).catch(function (e) {
+        if (Up.permErr(e)) return viaFolder();
+        if (e && e.name === 'NotFoundError') return viaFolder();
+        throw { lost: true };
+      });
+    },
+    // o que fazer com o erro de um video: parar de insistir, ou sair da fila
+    problem: function (rec, e) {
+      var k = Up.kindOf(e);
+      if (k === 'lost' || k === 'perm') Up.stuck[rec.id] = { kind: k };
+      if (k === 'gone') {
+        Up.del(rec.id).then(function () {
+          delete Up.prog[rec.id];
+          Toast.show('“' + rec.name + '” não está mais no celular (foi apagado da pasta PROMPTER). Saiu da fila do Drive.', null, null, 12000);
+          Up.paint(true);
+        });
+      }
+    },
+
+    // v10.2: um video que ficou na fila com copia e ja esta igual na pasta PROMPTER passa a ser so atalho
+    migrating: false,
+    migrate: function () {
+      if (Up.migrating || !Folder.active() || !Up.loaded) return Promise.resolve(0);
+      if (!Up.items.some(function (r) { return r.hasBlob; })) return Promise.resolve(0);
+      Up.migrating = true;
+      var freed = 0, n = 0;
+      return Folder.check().then(function (p) {
+        if (p !== 'granted') return null;
+        return Up.all();
+      }).then(function (list) {
+        if (!list) return null;
+        var step = function (i) {
+          if (i >= list.length) return null;
+          var rec = list[i];
+          if (!rec.blob || Up.busy[rec.id] === true) return step(i + 1);
+          return Up.find(rec).then(function (m) {
+            // copia legivel: so troca se o comeco e o fim forem iguais (mesmo nome e tamanho nao provam nada)
+            return Up.probe(rec.blob).then(function () { return Up.same(rec.blob, m.file); }, function () { return true; })
+              .then(function (same) { return same ? Up.swap(rec, m.fh).then(function () { freed += rec.size; n++; }) : null; });
+          }).catch(function () { /* sem arquivo igual na pasta: a copia fica */ }).then(function () { return step(i + 1); });
+        };
+        return step(0);
+      }).catch(function () { }).then(function () {
+        Up.migrating = false;
+        if (n) {
+          Up.moved = freed;
+          Toast.show('Liberei ' + fmtBytes(freed) + ' no celular: ' + (n === 1 ? '1 vídeo já estava na pasta PROMPTER e deixou' : n + ' vídeos já estavam na pasta PROMPTER e deixaram') + ' de ocupar espaço duas vezes.', null, null, 12000);
+        }
+        return Up.all().then(function () { Up.paint(true); return n; });
+      });
+    },
+    same: function (a, b) {
+      var cmp = function (x, y) {
+        return Promise.all([Up.slurp(x), Up.slurp(y)]).then(function (r) {
+          var u = new Uint8Array(r[0]), v = new Uint8Array(r[1]);
+          if (u.length !== v.length) return false;
+          for (var i = 0; i < u.length; i++) if (u[i] !== v[i]) return false;
+          return true;
+        });
+      };
+      var k = 65536;
+      return cmp(a.slice(0, k), b.slice(0, k)).then(function (ok) { return ok && a.size > k ? cmp(a.slice(a.size - k), b.slice(b.size - k)) : ok; });
+    },
+    // a pasta PROMPTER ainda pede licenca (so com um toque)
+    needFolder: function () {
+      return Up.pending() > 0 && Folder.active() && Folder.perm === 'prompt' && Up.items.some(function (r) { return r.hasFh || r.hasBlob; });
+    },
+    grantFolder: function () {
+      var h = Folder.handle;
+      if (!h || typeof h.requestPermission !== 'function') return Promise.resolve('');
+      return Promise.resolve(h.requestPermission({ mode: 'readwrite' })).then(function (p) {
+        Folder.perm = p;
+        return p;
+      }, function () { Folder.perm = 'denied'; return 'denied'; }).then(function (p) {
+        if (p === 'granted') { Up.stuck = {}; Up.migrate().then(function () { Up.run(); }); }
+        Up.paint(true);
+        return p;
       });
     },
 
@@ -1551,9 +1796,9 @@
         headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': rec.type, 'X-Upload-Content-Length': String(rec.size) },
         body: JSON.stringify({ name: rec.name, parents: [parent], mimeType: rec.type })
       }).then(function (r) {
-        if (r.status === 401 || r.status === 403) { if (r.status === 401) Store.write(K_GTOKEN, null); throw { auth: true }; }
+        if (r.status === 401) { Store.write(K_GTOKEN, null); throw { auth: true }; }
         if (r.status === 404) { Store.write(K_UPROOT, null); Store.write(K_UPDAYS, {}); throw { status: 404 }; }   // pasta apagada: recria
-        if (!r.ok) throw { status: r.status };
+        if (!r.ok) return r.text().then(function (t) { throw Up.httpErr(r.status, t, false); }, function () { throw Up.httpErr(r.status, '', false); });
         var loc = r.headers.get('Location');
         if (!loc) throw { status: 'sem endereço de envio' };
         rec.session = loc;
@@ -1561,13 +1806,27 @@
         return Up.saveMeta(rec).then(function () { return 0; });
       });
     },
+    /* v10.2: o Google diz o motivo no JSON do erro. Drive cheio (storageQuotaExceeded) e limite de taxa
+       (rateLimitExceeded, userRateLimitExceeded, 429) nao sao "login"; so 401 e 403 de permissao pedem login.
+       session: o endereco da sessao de envio nao usa login; um 403 la nao e de permissao. */
+    httpErr: function (status, body, session) {
+      var reasons = '';
+      try {
+        var j = JSON.parse(body), er = j && j.error || {};
+        reasons = (er.errors || []).map(function (x) { return x && x.reason; }).join(' ') + ' ' + (er.status || '') + ' ' + (er.message || '');
+      } catch (e) { reasons = String(body || ''); }
+      if (/storageQuotaExceeded/i.test(reasons)) return { drive: 'full', status: status };
+      if (status === 429 || /rateLimitExceeded|dailyLimitExceeded|quotaExceeded|RESOURCE_EXHAUSTED/i.test(reasons)) return { rate: true, status: status };
+      if (status === 401 || (status === 403 && !session)) return { auth: true, status: status };
+      return { status: status };
+    },
     // onde a sessao parou; -1 = sessao vencida (abre outra do zero)
     status: function (rec) {
       return Up.xhr('PUT', rec.session, null, { 'Content-Range': 'bytes */' + rec.size }).then(function (x) {
         if (x.status === 200 || x.status === 201) return rec.size;
         if (x.status === 308) return Up.offset(x, 0);
         if (x.status === 404 || x.status === 410) { rec.session = null; return Up.saveMeta(rec).then(function () { return -1; }); }
-        throw { status: x.status };
+        throw Up.httpErr(x.status, x.responseText, true);
       });
     },
     offset: function (x, fallback) {
@@ -1578,7 +1837,8 @@
       Up.prog[rec.id] = from;
       if (from >= rec.size) return Promise.resolve();
       var to = Math.min(rec.size, from + Up.CHUNK), last = 0;
-      return Up.xhr('PUT', rec.session, rec.blob.slice(from, to), { 'Content-Range': 'bytes ' + from + '-' + (to - 1) + '/' + rec.size },
+      var src = rec.src || rec.blob;
+      return Up.xhr('PUT', rec.session, src.slice(from, to), { 'Content-Range': 'bytes ' + from + '-' + (to - 1) + '/' + rec.size },
         function (loaded) {
           Up.bytes += Math.max(0, loaded - last);
           last = loaded;
@@ -1596,7 +1856,13 @@
             });
           }
           if (x.status === 404 || x.status === 410) { rec.session = null; return Up.saveMeta(rec).then(function () { throw { status: x.status }; }); }
-          throw { status: x.status };
+          throw Up.httpErr(x.status, x.responseText, true);
+        }, function (e) {
+          // status 0 sem ser "parou de andar": a rede caiu, ou o pedaco do arquivo nao se deixa ler? So a leitura diz.
+          if (e && e.status === 0 && !e.stall) {
+            return Up.slurp(src.slice(from, to)).then(function () { throw e; }, function () { throw { lost: true }; });
+          }
+          throw e;
         });
     },
     xhr: function (method, url, body, headers, onProgress, total) {
@@ -1619,6 +1885,7 @@
     finish: function (rec, how) {
       return Up.del(rec.id).then(function () {
         delete Up.prog[rec.id];
+        Up.tries = 0;
         Up.batchDone = Up.items.length ? Up.batchDone + rec.size : 0;
         var log = Store.read(K_UPDONE, []) || [];
         log.unshift({ name: rec.name, size: rec.size, day: rec.day, at: now(), how: how });
@@ -1673,8 +1940,8 @@
             headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json; charset=UTF-8' },
             body: JSON.stringify({ name: name, mimeType: FOLDER_MIME, parents: [parent] })
           }).then(function (r) {
-            if (r.status === 401 || r.status === 403) throw { auth: true };
-            if (!r.ok) throw { status: r.status };
+            if (r.status === 401) throw { auth: true };
+            if (!r.ok) return r.text().then(function (t) { throw Up.httpErr(r.status, t, false); }, function () { throw Up.httpErr(r.status, '', false); });
             return r.json();
           }).then(function (f) { return f.id; });
         });
@@ -1740,22 +2007,91 @@
       var dt = (t - s[0][0]) / 1000;
       return dt >= 4 ? (Up.bytes - s[0][1]) / dt : 0;
     },
+    fmtWait: function (ms) {
+      var s = Math.max(1, Math.ceil(ms / 1000));
+      return s < 60 ? s + ' s' : Math.round(s / 60) + ' min';
+    },
+    wait: function () { return Up.fmtWait(Math.max(0, Up.nextAt - now())); },
+    whyText: function () {
+      if (Up.why === 'rate') return 'o Google pediu para esperar (limite de envios)';
+      if (Up.why === 'g5xx') return 'erro do Google' + (Up.whyStatus ? ' (' + Up.whyStatus + ')' : '');
+      return 'sem conexão estável com o Google';
+    },
     state: function (r) {
+      var st = Up.stuck[r.id];
+      if (st) return st.kind === 'lost' ? 'cópia perdida no app: confira a pasta PROMPTER' : 'libere a pasta PROMPTER para enviar';
       if (Up.busy[r.id] === 'prep') return 'conferindo no Drive';
       if (Up.busy[r.id]) return 'enviando ' + Math.floor((Up.prog[r.id] || 0) / Math.max(1, r.size) * 100) + '%';
       if (!Up.ready(r)) return 'esperando o login';
-      if (Up.failed[r.id] || Up.note === 'erro') return 'tenta de novo em instantes';
+      if (Up.note === 'cheio') return 'parado: seu Google Drive está cheio';
+      if (Up.note === 'erro' && Up.nextAt) return 'esperando: ' + Up.whyText() + '; tento de novo em ' + Up.wait();
+      if (Up.note === 'pasta' && r.hasFh) return 'libere a pasta PROMPTER para enviar';
       return 'na fila';
     },
     summary: function () {
       var n = Up.pending(), left = Up.leftBytes();
       var txt = (n === 1 ? '1 vídeo' : n + ' vídeos') + ' para subir ao Google Drive (' + fmtBytes(left) + ')';
       var sending = Up.running && Object.keys(Up.busy).length > 0;
+      var stuckN = Object.keys(Up.stuck).length;
       if (sending) txt += ' · enviando';
       else if (!navigator.onLine) txt += ' · sem internet';
       else if (Up.note === 'login') txt += ' · entre no Google para enviar';
-      else if (Up.note === 'erro') txt += ' · tento de novo em 30 s';
+      else if (Up.note === 'cheio') txt += ' · Seu Google Drive está cheio';
+      else if (Up.note === 'erro') txt += ' · ' + Up.whyText() + '; tento de novo em ' + Up.wait();
+      else if (Up.note === 'pasta') txt += ' · libere a pasta PROMPTER para enviar';
+      else if (Up.note === 'parado' || stuckN) txt += ' · ' + (stuckN === 1 ? '1 vídeo com problema' : stuckN + ' vídeos com problema');
       return txt;
+    },
+    // um li por video, reaproveitado entre as pinturas (o toque em "Remover" nao se perde no meio da tela)
+    paintList: function () {
+      var ul = $('#up-list'), seen = {};
+      Up.items.forEach(function (r, i) {
+        seen[r.id] = true;
+        var li = ul.querySelector('li[data-id="' + r.id + '"]');
+        if (!li) {
+          li = el('li');
+          li.setAttribute('data-id', r.id);
+          var row = el('div', 'up-row');
+          row.appendChild(el('span', 'up-name'));
+          var b = el('button', 'up-rm', 'Remover');
+          b.type = 'button';
+          row.appendChild(b);
+          li.appendChild(row);
+          li.appendChild(el('span', 'up-st'));
+          li.appendChild(el('i', 'up-mini'));
+        }
+        if (ul.children[i] !== li) ul.insertBefore(li, ul.children[i] || null);
+        li.querySelector('.up-name').textContent = r.name;
+        li.querySelector('.up-rm').setAttribute('aria-label', 'Remover da fila: ' + r.name);
+        var st = Up.stuck[r.id];
+        li.classList.toggle('bad', !!st || Up.note === 'cheio');
+        li.querySelector('.up-st').textContent = fmtBytes(r.size) + (r.hasBlob ? ' · cópia no app' : r.hasFh ? ' · só na pasta' : '') + ' · ' + Up.state(r);
+        li.querySelector('.up-mini').style.width = Math.min(100, (Up.prog[r.id] || 0) / Math.max(1, r.size) * 100).toFixed(1) + '%';
+      });
+      Array.prototype.slice.call(ul.children).forEach(function (li) { if (!seen[li.getAttribute('data-id')]) li.remove(); });
+    },
+    // quanto a fila ocupa no celular: so as copias; atalho para a pasta PROMPTER nao ocupa nada
+    copies: function () {
+      var b = 0, c = 0, f = 0;
+      Up.items.forEach(function (r) { if (r.hasBlob) { b += r.size; c++; } else if (r.hasFh) f++; });
+      return { bytes: b, n: c, links: f };
+    },
+    paintSpace: function (n) {
+      var p = $('#up-space');
+      p.hidden = !n;
+      if (!n) return;
+      var c = Up.copies();
+      var warn = c.bytes >= 1e9 && Space.low();
+      var txt = c.bytes
+        ? 'A fila ocupa ' + fmtBytes(c.bytes) + ' no celular (cópia de ' + (c.n === 1 ? '1 vídeo' : c.n + ' vídeos') + ').'
+        : 'A fila não ocupa espaço no celular: os vídeos ficam só na pasta PROMPTER.';
+      if (c.bytes && c.links) txt += ' Outros ' + c.links + (c.links === 1 ? ' é' : ' são') + ' só atalho para a pasta PROMPTER.';
+      if (warn) {
+        txt = 'Pouco espaço no celular, e a fila guarda ' + fmtBytes(c.bytes) + ' em cópias de vídeos. '
+          + (Up.needFolder() ? 'Toque em “Liberar a pasta PROMPTER”: o que já está nela deixa de ocupar espaço duas vezes.' : 'Remover da fila ou limpar a fila libera esse espaço (confiro antes se o vídeo continua na pasta PROMPTER).');
+      }
+      p.textContent = txt;
+      p.classList.toggle('warn', warn);
     },
     paint: function (force) {
       var t = now();
@@ -1782,24 +2118,22 @@
         if (Up.running && sp > 0) sub = (sp / 1e6).toFixed(1).replace('.', ',') + ' MB/s · faltam cerca de ' + fmtLeft(left / sp);
         else if (!navigator.onLine) sub = 'Conecte a internet: o envio continua sozinho.';
         else if (Up.note === 'login') sub = 'O acesso ao Google vence em 1 hora. Toque em Entrar para continuar.';
+        else if (Up.note === 'cheio') sub = 'Libere espaço no Google Drive e toque em Tentar agora. Nada foi perdido: os vídeos continuam no celular.';
+        else if (Up.note === 'erro') sub = 'Nada foi perdido: os vídeos continuam no celular.';
+        else if (Up.note === 'pasta') sub = 'O Android pede um toque para o app ler os vídeos da pasta PROMPTER.';
         else if (Up.running) sub = 'Conferindo no Drive e começando o envio…';
         $('#up-sub').textContent = sub;
       }
       $('#up-sub').hidden = !$('#up-sub').textContent;
+      $('#up-link').hidden = !(n && Up.note === 'cheio');
       $('#up-bar').style.width = (n && total ? Math.min(100, sent / total * 100) : 100).toFixed(1) + '%';
       $('#up-keep').hidden = !n;
       $('#btn-up-login').hidden = !(n && Up.needsLogin());
-      var ul = $('#up-list');
-      ul.innerHTML = '';
-      Up.items.forEach(function (r) {
-        var li = el('li');
-        li.appendChild(el('span', 'up-name', r.name));
-        li.appendChild(el('span', 'up-st', fmtBytes(r.size) + ' · ' + Up.state(r)));
-        var bar = el('i', 'up-mini');
-        bar.style.width = Math.min(100, (Up.prog[r.id] || 0) / Math.max(1, r.size) * 100).toFixed(1) + '%';
-        li.appendChild(bar);
-        ul.appendChild(li);
-      });
+      $('#btn-up-folder').hidden = !(n && Up.needFolder());
+      $('#btn-up-retry').hidden = !(n && (['erro', 'cheio', 'pasta', 'parado'].indexOf(Up.note) >= 0 || Object.keys(Up.stuck).length));
+      $('#btn-up-clear').hidden = !n;
+      Up.paintSpace(n);
+      Up.paintList();
       var dl = $('#up-done-list');
       dl.innerHTML = '';
       log.forEach(function (d) { dl.appendChild(el('li', null, d.name + (d.how === 'drive' ? ' (já estava no Drive)' : ''))); });
@@ -1823,6 +2157,271 @@
       c.textContent = txt;
     }
   };
+
+  /* ============================ Espaco do celular (v10.2) ============================
+     25/11/2026: a fila do Drive do Felipe travou com 37 videos (9,9 GB), cada um gravado duas vezes no
+     celular (pasta PROMPTER e copia na fila); com o celular cheio, o video novo se perdia calado.
+     - Space: aviso ANTES de gravar quando o espaco esta baixo, e o registro da ultima falha de escrita.
+       navigator.storage.estimate() e a cota da ORIGEM no Chrome (quota - usage), nao o espaco livre do
+       aparelho; com o disco quase cheio o Chrome encolhe a cota (capacidade = uso + livre - reserva),
+       entao serve de alarme, nao de medida. O video na pasta PROMPTER nao entra nessa conta.
+     - Lost: video que nem a pasta nem a fila guardaram. Fica na memoria, com aviso grande (nao some).
+     - Qm: tirar video da fila e limpar a fila, dizendo se ele continua na pasta PROMPTER (so se conferiu). */
+
+  var K_SPACEFAIL = 'tp.spaceFail';
+  var Space = {
+    left: -1,              // quota - usage da origem (estimativa); -1 = desconhecido
+    quota: 0,
+    usage: 0,
+    LOW: 1.5e9,            // abaixo disso avisa antes de gravar
+    okUntil: 0,            // "Gravar mesmo assim": nao pergunta de novo por 30 min
+
+    // erro de escrita que NAO e falta de licenca: disco cheio ou arquivo que nao fechou
+    diskErr: function (e) {
+      if (!e || e.perm || e.name === 'NotAllowedError' || e.name === 'SecurityError') return false;
+      return e.name === 'QuotaExceededError' || /quota|space|full|enospc|disk|incompleto|espa/i.test(String(e.message || '') + ' ' + String(e.name || ''));
+    },
+    estimate: function () {
+      var s = navigator.storage;
+      if (!s || typeof s.estimate !== 'function') return Promise.resolve(-1);
+      var p;
+      try { p = s.estimate(); } catch (e) { return Promise.resolve(-1); }
+      return Promise.resolve(p).then(function (e) {
+        if (!e || !(e.quota > 0)) return -1;
+        Space.quota = e.quota;
+        Space.usage = e.usage || 0;
+        Space.left = Math.max(0, e.quota - Space.usage);
+        Up.paint(true);
+        return Space.left;
+      }, function () { return -1; });
+    },
+    failed: function () { var t = Store.read(K_SPACEFAIL, 0) || 0; return !!t && now() - t < 48 * 3600e3; },
+    noteFail: function () { Store.write(K_SPACEFAIL, now()); },
+    noteOk: function () { if (Store.read(K_SPACEFAIL, 0)) Store.write(K_SPACEFAIL, 0); },
+    // espaco que cabe uns 5 min de video na taxa atual, no minimo 1,5 GB
+    need: function () { return Math.max(Space.LOW, ((Rec.big() ? 30e6 : 12e6) + 192000) / 8 * 300); },
+    low: function () { return (Space.left >= 0 && Space.left < Space.need()) || Space.failed(); },
+
+    // chamado ao comecar a gravar: true = mostrou o aviso (a pisada foi usada; nao grava neste toque)
+    guard: function () {
+      Space.estimate();      // atualiza para a proxima vez
+      if (now() < Space.okUntil || !Space.low()) return false;
+      Space.show();
+      return true;
+    },
+    isShown: function () { return !$('#space-ask').hidden; },
+    show: function () {
+      $('#space-ask-text').textContent = Space.left >= 0 && Space.left < Space.need()
+        ? 'Seu celular está quase sem espaço (' + fmtBytes(Space.left) + ' livres). O vídeo pode não ser salvo.'
+        : 'O último vídeo não coube no celular. O próximo pode não ser salvo.';
+      $('#space-ask').hidden = false;
+    },
+    hide: function () { $('#space-ask').hidden = true; },
+    go: function () {
+      Space.hide();
+      Space.okUntil = now() + 30 * 60000;
+      if (!Prompter.isOpen() || Rec.active() || !Rec.stream) return;
+      if (Folder.ask()) return;
+      if (Rec.start()) Prompter.countdownThenPlay();
+    },
+    // "Liberar espaco": leva para a fila do Drive (a tela inicial), onde da para tirar videos
+    manage: function () {
+      Space.hide();
+      Lost.hide();
+      if (Rec.active()) { Toast.show('Pare a gravação para liberar espaço.'); return; }
+      if (current !== 'library') show('library');
+      Up.paint(true);
+      setTimeout(function () {
+        var b = $('#up-status');
+        if (b.hidden) Toast.show('A fila do Drive está vazia. Para liberar espaço, apague vídeos e fotos que você não precisa mais.', null, null, 9000);
+        else if (b.scrollIntoView) safe(function () { b.scrollIntoView({ block: 'start' }); });
+      }, 60);
+    },
+    // depois de salvar: avisa o que ficou pela metade
+    after: function (res) {
+      if (res.queued === false) {
+        Space.noteFail();
+        Toast.show('Não consegui pôr o vídeo na fila do Drive: o celular está sem espaço. Ele ficou salvo ' + (res.where === 'pasta' ? 'na pasta PROMPTER.' : 'na pasta Download.'), null, null, 12000);
+      } else if (res.queued === true && res.where !== 'pasta' && res.diskFail) {
+        Space.noteFail();
+        Toast.show('A pasta PROMPTER está sem espaço: o vídeo ficou só na fila do Drive, dentro do app. Libere espaço no celular.', null, null, 12000);
+      } else Space.noteOk();
+    }
+  };
+  $('#btn-space-free').addEventListener('click', function () { Space.manage(); });
+  $('#btn-space-go').addEventListener('click', function () { Space.go(); });
+
+  var Lost = {
+    list: [],              // videos que nao foram salvos em lugar nenhum: { blob, url, name, day, tried }
+    busy: false,
+    isShown: function () { return !$('#lost').hidden; },
+    add: function (it) { Lost.list.push(it); Lost.paint(); Lost.show(); },
+    show: function () {
+      var it = Lost.list[0];
+      if (!it) { Lost.hide(); return; }
+      $('#lost-title').textContent = 'Celular sem espaço: este vídeo NÃO foi salvo';
+      $('#lost-text').textContent = '“' + it.name + '” (' + fmtBytes(it.blob.size) + ') está só na memória do app agora. Não feche o app. Libere espaço no celular e toque em “Tentar salvar de novo”.'
+        + (it.tried ? ' O celular recusou a pasta PROMPTER; tentei também a pasta Download, mas não consigo conferir se deu certo.' : '')
+        + (Lost.list.length > 1 ? ' Mais ' + (Lost.list.length - 1) + (Lost.list.length === 2 ? ' vídeo espera' : ' vídeos esperam') + ' na memória.' : '');
+      $('#lost-sub').textContent = it.again || '';
+      $('#lost-sub').hidden = !it.again;
+      $('#lost').hidden = false;
+    },
+    hide: function () { $('#lost').hidden = true; },
+    paint: function () {
+      var n = Lost.list.length, b = $('#lost-bar');
+      b.hidden = !n;
+      $('#lost-bar-text').textContent = n === 1 ? '1 vídeo NÃO foi salvo (celular sem espaço)' : n + ' vídeos NÃO foram salvos (celular sem espaço)';
+    },
+    retry: function () {
+      var it = Lost.list[0];
+      if (!it || Lost.busy) return;
+      Lost.busy = true;
+      $('#btn-lost-retry').disabled = true;
+      Rec.persist(it.blob, it.url, it.name, it.day, true).then(function (res) {
+        Lost.busy = false;
+        $('#btn-lost-retry').disabled = false;
+        if (res.saved) {
+          Lost.list.shift();
+          Lost.paint();
+          Space.after(res);
+          Toast.show('Pronto: “' + it.name + '” foi salvo.', null, null, 6000);
+          if (Lost.list.length) Lost.show(); else Lost.hide();
+        } else {
+          it.again = 'Ainda não coube. Libere mais espaço e tente de novo.';
+          Lost.show();
+        }
+      });
+    }
+  };
+  $('#btn-lost-retry').addEventListener('click', function () { Lost.retry(); });
+  $('#btn-lost-free').addEventListener('click', function () { Space.manage(); });
+  $('#btn-lost-later').addEventListener('click', function () { Lost.hide(); });
+  $('#btn-lost-bar').addEventListener('click', function () { Lost.show(); });
+  // sair do app com video so na memoria perde o video
+  window.addEventListener('beforeunload', function (ev) {
+    if (!Lost.list.length) return;
+    ev.preventDefault();
+    ev.returnValue = '';
+  });
+
+  var Qm = {
+    act: null,
+    alt: null,
+    isShown: function () { return !$('#up-confirm').hidden; },
+    hide: function () { $('#up-confirm').hidden = true; Qm.act = Qm.alt = null; },
+    open: function (o) {
+      $('#up-confirm-title').textContent = o.title;
+      $('#up-confirm-text').textContent = o.text;
+      var y = $('#btn-qm-yes'), a = $('#btn-qm-alt');
+      y.textContent = o.yes;
+      y.classList.toggle('danger-btn', !!o.danger);
+      a.hidden = !o.altText;
+      a.textContent = o.altText || '';
+      Qm.act = o.act;
+      Qm.alt = o.alt || null;
+      $('#up-confirm').hidden = false;
+    },
+    // onde esta o video alem da fila? 'pasta' (conferido agora), 'sozinha' (a pasta nao tem), 'sumido', 'incerto'
+    where: function (rec) {
+      if (rec.fh) {
+        return Up.fromHandle(rec).then(function () { return 'pasta'; }, function (e) {
+          return e && e.gone ? 'sumido' : e && e.perm ? 'incerto' : 'ilegivel';
+        });
+      }
+      return Up.find(rec).then(function () { return 'pasta'; }, function (e) {
+        if (!(e && e.nomatch && !e.other)) return 'incerto';
+        return Up.probe(rec.blob).then(function () { return 'sozinha'; }, function () { return 'ilegivel'; });
+      });
+    },
+    remove: function (ids) {
+      var left = ids.slice(), n = 0, freed = 0;
+      var step = function () {
+        var id = left.shift();
+        if (!id) return null;
+        var i = Up.index(id), r = i >= 0 ? Up.items[i] : null;
+        if (!r || Up.busy[id] === true) return step();
+        return Up.del(id).then(function () {
+          delete Up.prog[id];
+          delete Up.stuck[id];
+          n++;
+          if (r.hasBlob) freed += r.size;
+          return step();
+        });
+      };
+      return Promise.resolve(step()).then(function () {
+        Up.paint(true);
+        if (!Up.pending()) { Up.note = ''; Up.halt = false; }
+        Toast.show(n === 1 ? 'Saiu da fila do Drive.' + (freed ? ' Liberei ' + fmtBytes(freed) + ' no celular.' : '') : n + ' vídeos saíram da fila do Drive.' + (freed ? ' Liberei ' + fmtBytes(freed) + ' no celular.' : ''), null, null, 7000);
+        Up.run();
+      });
+    },
+    askOne: function (id) {
+      if (Up.busy[id] === true) { Toast.show('Este vídeo está subindo agora. Espere terminar para tirar da fila.'); return; }
+      Up.all().then(function (list) {
+        var rec = list.filter(function (r) { return r.id === id; })[0];
+        if (!rec) return null;
+        return Qm.where(rec).then(function (w) {
+          var nm = '“' + rec.name + '” (' + fmtBytes(rec.size) + ')';
+          var o = { title: 'Tirar da fila do Drive?', yes: 'Tirar da fila', act: function () { return Qm.remove([id]); } };
+          if (w === 'pasta') o.text = nm + ' sai da fila e não sobe ao Drive. O vídeo continua na pasta PROMPTER do celular (conferi agora).';
+          else if (w === 'sumido') o.text = nm + ' já não está no celular. Tirar da fila só limpa a lista.';
+          else if (w === 'sozinha' || w === 'ilegivel') {
+            o.title = 'Atenção: pode ser a única cópia';
+            o.text = nm + ': não achei este vídeo na pasta PROMPTER, e a cópia da fila ' + (w === 'ilegivel' ? 'não abre mais. Confira a pasta PROMPTER e a Galeria antes de remover.' : 'é a única que o app conhece. Se você tirar da fila, o vídeo some do celular.');
+            o.yes = 'Remover mesmo assim'; o.danger = true;
+          } else {
+            o.title = 'Não consegui conferir';
+            o.text = nm + ': não consegui conferir se ele está na pasta PROMPTER' + (Folder.active() ? ' (a pasta pede licença: use “Liberar a pasta PROMPTER”)' : ' (neste aparelho os vídeos vão para a pasta Download)') + '. Se não estiver em outro lugar, tirar da fila apaga o vídeo do celular.';
+            o.yes = 'Remover mesmo assim'; o.danger = true;
+          }
+          Qm.open(o);
+        });
+      }).catch(function () { Toast.show('Não consegui abrir a fila agora. Tente de novo.'); });
+    },
+    askClear: function () {
+      if (!Up.items.length) return;
+      Up.all().then(function (list) {
+        var safeIds = [], riskIds = [];
+        var step = function (i) {
+          if (i >= list.length) return null;
+          var r = list[i];
+          if (Up.busy[r.id] === true) return step(i + 1);
+          return Qm.where(r).then(function (w) { (w === 'pasta' || w === 'sumido' ? safeIds : riskIds).push(r.id); }).then(function () { return step(i + 1); });
+        };
+        return Promise.resolve(step(0)).then(function () {
+          var all = safeIds.concat(riskIds), a = safeIds.length, b = riskIds.length;
+          var plural = function (n) { return n === 1 ? '1 vídeo' : n + ' vídeos'; };
+          var stay = function (n) { return n === 1 ? '1 vídeo continua' : n + ' vídeos continuam'; };
+          var risk = function (n) { return n === 1 ? '1 vídeo NÃO está' : n + ' vídeos NÃO estão'; };
+          var lose = b === 1 ? 'esse pode se perder' : 'esses podem se perder';
+          if (!all.length) { Toast.show('Os vídeos estão subindo agora. Tente de novo quando terminarem.'); return; }
+          if (!b) {
+            Qm.open({ title: 'Limpar a fila do Drive?', yes: 'Limpar a fila', text: plural(a) + ' sai da fila e não sobe ao Drive. ' + (a === 1 ? 'O vídeo continua' : 'Todos continuam') + ' na pasta PROMPTER do celular (conferi agora).', act: function () { return Qm.remove(all); } });
+          } else {
+            Qm.open({
+              title: 'Limpar a fila do Drive?', danger: true, yes: 'Limpar tudo, mesmo os sem cópia',
+              text: a ? stay(a) + ' na pasta PROMPTER (conferi). ' + risk(b) + ' na pasta (ou não consegui conferir): se você limpar, ' + lose + ' do celular.'
+                : risk(b) + ' na pasta PROMPTER (ou não consegui conferir). Se você limpar a fila, ' + lose + ' do celular.',
+              act: function () { return Qm.remove(all); },
+              altText: a ? (a === 1 ? 'Limpar só o conferido' : 'Limpar só os ' + a + ' conferidos') : '', alt: a ? function () { return Qm.remove(safeIds); } : null
+            });
+          }
+        });
+      }).catch(function () { Toast.show('Não consegui abrir a fila agora. Tente de novo.'); });
+    }
+  };
+  $('#btn-qm-yes').addEventListener('click', function () { var f = Qm.act; Qm.hide(); if (f) f(); });
+  $('#btn-qm-alt').addEventListener('click', function () { var f = Qm.alt; Qm.hide(); if (f) f(); });
+  $('#btn-qm-no').addEventListener('click', function () { Qm.hide(); });
+  $('#btn-up-retry').addEventListener('click', function () { Up.retryNow(); });
+  $('#btn-up-folder').addEventListener('click', function () { Up.grantFolder(); });
+  $('#btn-up-clear').addEventListener('click', function () { Qm.askClear(); });
+  $('#up-list').addEventListener('click', function (ev) {
+    var b = ev.target.closest ? ev.target.closest('.up-rm') : null;
+    var li = b && b.closest('li');
+    if (li) Qm.askOne(li.getAttribute('data-id'));
+  });
 
   /* ---- aviso de envio pendente: antes de sair do prompter e no "voltar" do Android ----
      Sair do prompter nao para o envio (a tela inicial continua e mostra o progresso); fechar o app
@@ -1970,6 +2569,7 @@
 
       // 1) o essencial, na ordem em que depende do layout
       show('prompter');
+      Space.estimate();
       safe(Settings.applyToPrompter);
       Prompter.measure(false);
       if (Prompter.tops.length) Prompter.offset = Prompter.tops[0];
@@ -2758,6 +3358,7 @@
         if (Prompter.sectionAt(Prompter.baseOffset()) !== Rec.sec) { Rec.stop(); Rec.start(); }   // outro bloco, outro arquivo
         return false;
       }
+      if (Space.guard()) return true;   // v10.2: pouco espaco no celular: pergunta antes (este toque so mostra o aviso)
       if (Folder.ask()) return true;    // a pasta PROMPTER pede licenca de novo: este toque so libera, o seguinte grava
       if (!Rec.start()) return true;
       Prompter.countdownThenPlay();
@@ -2855,6 +3456,18 @@
       a.remove();
     },
 
+    /* v10.2: guarda o video e diz ONDE ele ficou: { saved, where, queued, diskFail, unsure }.
+       saved so e true com a pasta PROMPTER, a fila do Drive ou a Download sem sinal de disco cheio. Nunca rejeita. */
+    persist: function (blob, url, name, day, retry) {
+      return Folder.keep(blob, url, name, { retry: retry }).then(function (k) {
+        var q = settings.driveUpload ? Up.add(blob, name, day, { fh: k.fh }) : Promise.resolve(null);
+        return q.then(function (queued) {
+          var saved = k.where === 'pasta' || queued === true || (k.where === 'download' && !k.unsure);
+          return { saved: saved, where: k.where, queued: queued, diskFail: !!k.diskFail, unsure: !!k.unsure };
+        });
+      }).catch(function () { return { saved: false, where: 'nada', queued: false, unsure: false }; });
+    },
+
     save: function (chunks, type, d, label, rot) {
       if (!chunks.length) return;
       // ate o video estar no celular e na fila do Drive, a pagina nao sai (login automatico espera)
@@ -2871,9 +3484,11 @@
         Rec.last = { url: url, name: name };
         Rec.paint();       // sem aviso na tela (o Cláudio pediu): a ultima gravacao fica no icone de filme do topo
         // primeiro a copia no celular (pasta PROMPTER, ou Download); so depois a fila do Drive (Up.clear conta com isso)
-        Folder.keep(blob, url, name).then(function () {
-          if (settings.driveUpload) Up.add(blob, name, d.getFullYear() + ' ' + pad2(d.getMonth() + 1) + ' ' + pad2(d.getDate())).then(settle, settle);
-          else settle();
+        var day = d.getFullYear() + ' ' + pad2(d.getMonth() + 1) + ' ' + pad2(d.getDate());
+        Rec.persist(blob, url, name, day).then(function (res) {
+          if (res.saved) Space.after(res);
+          else { Space.noteFail(); Lost.add({ blob: blob, url: url, name: name, day: day, tried: !!res.unsure }); }
+          settle();
         });
       };
       if (!rot || webm || !chunks[0].arrayBuffer) { finish(chunks); return; }
@@ -3455,23 +4070,38 @@
       return true;
     },
 
-    // guarda o video no celular: pasta PROMPTER, ou Download se nao der. Nunca falha.
-    keep: function (blob, url, name) {
-      var done = function (where) { if (Folder.pendingWarn) Folder.warn(Folder.pendingWarn); return where; };
-      if (!Folder.active()) { Rec.download(url, name); return Promise.resolve(done('download')); }
-      return Folder.write(blob, name).then(function () { return done('pasta'); }, function () {
-        Rec.download(url, name);
-        Folder.warn('depois');
-        return done('download');
+    /* guarda o video no celular: pasta PROMPTER, ou Download se nao der. Nunca rejeita. Devolve
+       { where: 'pasta' | 'download', fh (atalho do arquivo da pasta), diskFail, unsure }.
+       v10.2: se a pasta falhou por disco cheio (e nao por falta de licenca), a copia na Download nao tem
+       como ser conferida (unsure). opt.retry: nova tentativa de um video que nao coube: nao baixa de novo. */
+    keep: function (blob, url, name, opt) {
+      var done = function (r) { if (Folder.pendingWarn) Folder.warn(Folder.pendingWarn); return r; };
+      var retry = !!(opt && opt.retry);
+      if (!Folder.active()) {
+        if (!retry) Rec.download(url, name);
+        return Promise.resolve(done({ where: 'download', unsure: retry }));
+      }
+      return Folder.write(blob, name).then(function (fh) { return done({ where: 'pasta', fh: fh }); }, function (e) {
+        var disk = Space.diskErr(e);
+        if (!retry) Rec.download(url, name);
+        if (!disk) Folder.warn('depois');
+        return done({ where: 'download', diskFail: disk, unsure: disk });
       });
     },
+    // grava e confere o tamanho no disco; devolve o atalho do arquivo
     write: function (blob, name) {
-      var h = Folder.handle;
+      var h = Folder.handle, fhRef = null;
       return Folder.check().then(function (p) {
         if (p !== 'granted') throw new Error('sem licença');
         return h.getFileHandle(name, { create: true });
-      }).then(function (fh) { return fh.createWritable(); }).then(function (w) {
+      }).then(function (fh) { fhRef = fh; return fh.createWritable(); }).then(function (w) {
         return w.write(blob).then(function () { return w.close(); }, function (e) { safe(function () { return w.abort(); }); throw e; });
+      }).then(function () {
+        if (!fhRef || typeof fhRef.getFile !== 'function') return fhRef;
+        return fhRef.getFile().then(function (f) {
+          if (f.size !== blob.size) throw new Error('arquivo incompleto no disco');
+          return fhRef;
+        }, function () { return fhRef; });
       });
     },
     // uma vez por abertura: onde o video ficou e como voltar a usar a pasta (gravando, espera acabar)
@@ -4447,6 +5077,13 @@
       Pedal.record(rec);
       if (Input.capture) { if (ev && ev.cancelable) ev.preventDefault(); Input.capture(tokens, rec); return true; }
       if (current === 'pedal' && a) { if (ev && ev.cancelable) ev.preventDefault(); return true; }
+      if (Space.isShown()) {               // v10.2: pouco espaco: o pedal da direita grava mesmo assim; nada rola por tras
+        if (!a) return false;
+        if (ev && ev.cancelable) ev.preventDefault();
+        if (!rec.repeat && a.id === 'playPause') Space.go();
+        return true;
+      }
+      if (Lost.isShown() || Qm.isShown()) { if (!a) return false; if (ev && ev.cancelable) ev.preventDefault(); return true; }
       if (UpLeave.isShown()) {             // aviso do envio ao Drive: nada grava nem rola por tras; o pedal da direita fecha o aviso
         if (!a) return false;
         if (ev && ev.cancelable) ev.preventDefault();
@@ -4549,7 +5186,7 @@
         Input.signal(tokens, rec, ev);                  // fecha a folha e executa (preventDefault dentro)
         return;
       }
-      if (ev.key === 'Escape') { ev.preventDefault(); if (UpLeave.isShown()) UpLeave.stay(); else if (Peek.on) Peek.hide(); else Prompter.exit(); return; }
+      if (ev.key === 'Escape') { ev.preventDefault(); if (Space.isShown()) Space.hide(); else if (Qm.isShown()) Qm.hide(); else if (Lost.isShown()) Lost.hide(); else if (UpLeave.isShown()) UpLeave.stay(); else if (Peek.on) Peek.hide(); else Prompter.exit(); return; }
       ev.stopPropagation();
       var handled = Input.signal(tokens, rec, ev);
       if (!handled && NAV_KEYS.indexOf(ev.key) !== -1) ev.preventDefault();
@@ -5741,7 +6378,10 @@
   // videos que ficaram na fila do Drive (app fechado, sem internet, login vencido) continuam a subir;
   // com video esperando login, a rodada termina renovando o login sozinha (tela inicial)
   Up.all().then(function () { Up.paint(true); setTimeout(Up.run, 1200); }, function () { /* sem IndexedDB */ });
-  Folder.load();          // pasta PROMPTER escolhida antes (v9.5)
+  // pasta PROMPTER escolhida antes (v9.5). v10.2: com a pasta liberada, os videos da fila que ja estao nela deixam de ocupar copia
+  Folder.load().then(function () { return Folder.check(); }).then(function () { return Up.all().catch(function () { }); }).then(function () { Up.paint(true); return Up.migrate(); }).catch(function () { });
+  Space.estimate();
+  setInterval(function () { if (Up.retryTimer && current === 'library') Up.paint(true); }, 5000);   // a contagem "tento de novo em" anda
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('controllerchange', function () {
@@ -5754,5 +6394,5 @@
   }
 
   // gancho para teste automatizado (nao afeta o uso)
-  window.__tp = { Share: Share, Docx: Docx, Fx: Fx, FxUI: FxUI, FxSheet: FxSheet, Peek: Peek, Lay: Lay, SndSpot: SndSpot, Toast: Toast, Prompter: Prompter, Rec: Rec, Up: Up, UpLeave: UpLeave, Guard: Guard, Modes: Modes, Flip: Flip, Folder: Folder, SaveAsk: SaveAsk, Player: Player, Input: Input, Voice: Voice, GDocs: GDocs, Sound: Sound, Gestures: Gestures, settings: settings, keymap: function () { return keymap; }, toNatural: toNatural, swipeToken: swipeToken, Script: Script };
+  window.__tp = { Space: Space, Lost: Lost, Qm: Qm, Share: Share, Docx: Docx, Fx: Fx, FxUI: FxUI, FxSheet: FxSheet, Peek: Peek, Lay: Lay, SndSpot: SndSpot, Toast: Toast, Prompter: Prompter, Rec: Rec, Up: Up, UpLeave: UpLeave, Guard: Guard, Modes: Modes, Flip: Flip, Folder: Folder, SaveAsk: SaveAsk, Player: Player, Input: Input, Voice: Voice, GDocs: GDocs, Sound: Sound, Gestures: Gestures, settings: settings, keymap: function () { return keymap; }, toNatural: toNatural, swipeToken: swipeToken, Script: Script };
 })();

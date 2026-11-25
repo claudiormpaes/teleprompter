@@ -80,11 +80,23 @@
           </div>
         </div>
       </div>
+      <div class="lost-bar" id="lost-bar" hidden role="alert">
+        <svg class="ic" aria-hidden="true"><use href="#i-cloud-up"></use></svg>
+        <b id="lost-bar-text"></b>
+        <button class="btn" id="btn-lost-bar" type="button">Ver</button>
+      </div>
       <div class="up-status" id="up-status" role="status" hidden>
         <div class="up-head">
           <svg class="ic" aria-hidden="true"><use href="#i-cloud-up"></use></svg>
           <div class="up-main"><b id="up-text"></b><span class="up-sub" id="up-sub" hidden></span></div>
           <button class="btn" id="btn-up-login" type="button" hidden>Entrar</button>
+        </div>
+        <p class="up-space" id="up-space" hidden></p>
+        <a class="up-link" id="up-link" href="https://one.google.com/storage" target="_blank" rel="noopener" hidden>Ver o armazenamento do Google (one.google.com/storage)</a>
+        <div class="up-actions" id="up-actions">
+          <button class="btn" id="btn-up-retry" type="button" hidden>Tentar agora</button>
+          <button class="btn" id="btn-up-folder" type="button" hidden>Liberar a pasta PROMPTER</button>
+          <button class="btn" id="btn-up-clear" type="button" hidden>Limpar fila</button>
         </div>
         <div class="up-bar" aria-hidden="true"><i id="up-bar"></i></div>
         <ul class="up-list" id="up-list" aria-label="Vídeos na fila do Drive"></ul>
@@ -575,6 +587,45 @@
       <div class="wiz-actions up-leave-actions">
         <button class="btn" id="btn-save-local" type="button">Não, só no celular</button>
         <button class="btn primary" id="btn-save-drive" type="button">Sim, configurar o Google Drive</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= SEM ESPACO (v10.2) ================= -->
+  <div class="overlay" id="lost" hidden role="alertdialog" aria-modal="true" aria-labelledby="lost-title">
+    <div class="wiz-box lost-box">
+      <div class="up-leave-art" aria-hidden="true"><svg class="ic"><use href="#i-film"></use></svg></div>
+      <h2 class="wiz-title" id="lost-title">Celular sem espaço: este vídeo NÃO foi salvo</h2>
+      <p class="hint center" id="lost-text"></p>
+      <p class="hint center lost-sub" id="lost-sub" hidden></p>
+      <div class="wiz-actions up-leave-actions">
+        <button class="btn primary" id="btn-lost-retry" type="button">Tentar salvar de novo</button>
+        <button class="btn" id="btn-lost-free" type="button">Liberar espaço do app</button>
+        <button class="btn ghost" id="btn-lost-later" type="button">Fechar por enquanto</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="space-ask" hidden role="alertdialog" aria-modal="true" aria-labelledby="space-ask-title">
+    <div class="wiz-box">
+      <div class="up-leave-art" aria-hidden="true"><svg class="ic"><use href="#i-film"></use></svg></div>
+      <h2 class="wiz-title" id="space-ask-title">Pouco espaço no celular</h2>
+      <p class="hint center" id="space-ask-text"></p>
+      <div class="wiz-actions up-leave-actions">
+        <button class="btn" id="btn-space-free" type="button">Liberar espaço</button>
+        <button class="btn primary" id="btn-space-go" type="button">Gravar mesmo assim</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="up-confirm" hidden role="alertdialog" aria-modal="true" aria-labelledby="up-confirm-title">
+    <div class="wiz-box">
+      <h2 class="wiz-title" id="up-confirm-title"></h2>
+      <p class="hint center" id="up-confirm-text"></p>
+      <div class="wiz-actions up-leave-actions">
+        <button class="btn primary" id="btn-qm-no" type="button">Cancelar</button>
+        <button class="btn" id="btn-qm-alt" type="button" hidden></button>
+        <button class="btn" id="btn-qm-yes" type="button"></button>
       </div>
     </div>
   </div>
